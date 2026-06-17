@@ -12,6 +12,8 @@ const state = {
   profileMarker: null,
   centerMarker: null,
   moveHandleMarker: null,
+  previewData: null,
+  dragState: null,
   currentScan: null,
   scanMode: 'new',
   theme: localStorage.getItem('radar-theme') || 'dark',
@@ -356,6 +358,8 @@ function clearMapObjects() {
   state.profileMarker = null;
   state.centerMarker = null;
   state.moveHandleMarker = null;
+  state.previewData = null;
+  state.dragState = null;
 }
 
 function selectedClient() {
@@ -383,11 +387,13 @@ async function initPreviewMap() {
       zoom: 13,
       mapTypeControl: false,
       streetViewControl: false,
-      fullscreenControl: true
+      fullscreenControl: true,
+      styles: CLEAN_MAP_STYLES
     });
   } else {
     state.map.setCenter(center);
     state.map.setZoom(13);
+    state.map.setOptions({ styles: CLEAN_MAP_STYLES });
   }
   await renderPreviewGrid();
 }
@@ -398,7 +404,7 @@ async function renderPreviewGrid() {
   clearMapObjects();
   $('#resultSummary').innerHTML = `<div class="preview-help">
     <strong>1. Mova o grid pelo ícone lateral</strong>
-    <span>Arraste o ícone vermelho ao lado esquerdo do grid. O ponto azul mostra apenas o centro atual.</span>
+    <span>Arraste o ícone cinza ao lado esquerdo do grid. O grid se move junto durante o arraste para facilitar o ajuste.</span>
   </div>
   <div class="preview-help">
     <strong>2. Confira raio e grid</strong>
@@ -431,15 +437,10 @@ async function renderPreviewGrid() {
     map: state.map,
     position: center,
     title: 'Centro atual do grid',
-    draggable: true,
+    draggable: false,
     label: { text: '+', color: '#ffffff', fontWeight: '900' },
     icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#24539b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
   });
-  state.centerMarker.addListener('dragend', async (evt) => {
-    setCenterFields(evt.latLng.lat(), evt.latLng.lng());
-    await renderPreviewGrid();
-  });
-
   preview.points.forEach(p => {
     const marker = new google.maps.Marker({
       map: state.map,
@@ -468,19 +469,47 @@ async function renderPreviewGrid() {
     lat: (minLat + maxLat) / 2,
     lng: minLng - (maxLng - minLng) * 0.24
   };
-  const previousHandle = handlePosition;
+  state.previewData = { preview, center, handlePosition };
   state.moveHandleMarker = new google.maps.Marker({
     map: state.map,
     position: handlePosition,
     draggable: true,
     title: 'Arraste este ícone para mover todo o grid',
-    label: { text: '✥', color: '#e11d48', fontWeight: '900', fontSize: '16px' },
-    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 16, fillColor: '#ffffff', fillOpacity: 1, strokeColor: '#ef4444', strokeWeight: 3 }
+    icon: moveHandleIcon()
+  });
+  state.moveHandleMarker.addListener('dragstart', () => {
+    state.dragState = {
+      handleStart: { ...handlePosition },
+      centerStart: { ...center },
+      pointsStart: preview.points.map(p => ({ lat: p.lat, lng: p.lng, row: p.row, col: p.col }))
+    };
+  });
+  state.moveHandleMarker.addListener('drag', (evt) => {
+    if (!state.dragState) return;
+    const dLat = evt.latLng.lat() - state.dragState.handleStart.lat;
+    const dLng = evt.latLng.lng() - state.dragState.handleStart.lng;
+    const movedCenter = { lat: state.dragState.centerStart.lat + dLat, lng: state.dragState.centerStart.lng + dLng };
+    state.centerMarker.setPosition(movedCenter);
+    setCenterFields(movedCenter.lat, movedCenter.lng);
+    state.dragState.pointsStart.forEach((basePoint, idx) => {
+      const moved = { lat: basePoint.lat + dLat, lng: basePoint.lng + dLng };
+      state.previewMarkers[idx].setPosition(moved);
+    });
+    for (let row = 0; row < gridSize; row++) {
+      const rowPath = state.dragState.pointsStart.filter(p => p.row === row).map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      state.previewLines[row].setPath(rowPath);
+    }
+    for (let col = 0; col < gridSize; col++) {
+      const colPath = state.dragState.pointsStart.filter(p => p.col === col).map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      state.previewLines[gridSize + col].setPath(colPath);
+    }
   });
   state.moveHandleMarker.addListener('dragend', async (evt) => {
-    const dLat = evt.latLng.lat() - previousHandle.lat;
-    const dLng = evt.latLng.lng() - previousHandle.lng;
-    setCenterFields(center.lat + dLat, center.lng + dLng);
+    if (!state.dragState) return;
+    const dLat = evt.latLng.lat() - state.dragState.handleStart.lat;
+    const dLng = evt.latLng.lng() - state.dragState.handleStart.lng;
+    setCenterFields(state.dragState.centerStart.lat + dLat, state.dragState.centerStart.lng + dLng);
+    state.dragState = null;
     await renderPreviewGrid();
   });
 
@@ -508,7 +537,7 @@ async function renderResultMap(scan) {
   const ok = await loadGoogleMaps().catch(() => false);
   if (!ok) return;
   if (!state.map) {
-    state.map = new google.maps.Map($('#map'), { center: scan.center, zoom: 13, mapTypeControl: false, streetViewControl: false, fullscreenControl: true });
+    state.map = new google.maps.Map($('#map'), { center: scan.center, zoom: 13, mapTypeControl: false, streetViewControl: false, fullscreenControl: true, styles: CLEAN_MAP_STYLES });
   }
   clearMapObjects();
   scan.points.forEach(point => {

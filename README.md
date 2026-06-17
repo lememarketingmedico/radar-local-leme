@@ -1,23 +1,17 @@
-# Radar Local LEME V3.2
+# Radar Local LEME V3.3
 
-Versão V3.2 do Radar Local LEME com:
+Versão V3.3 do Radar Local LEME com melhorias de usabilidade e um relatório redesenhado.
 
-- cadastro resumido de clientes;
-- edição de clientes já cadastrados;
-- status ativo/inativo para clientes e palavras-chave;
-- localização automática por Place ID ou endereço;
-- centro do grid ajustável no mapa;
-- ícone lateral para mover o grid inteiro de forma mais intuitiva;
-- grid 3x3, 5x5 e 7x7;
-- raio livre de 0,2 km a 50 km;
-- relatório horizontal 1920 x 1080 com foco maior no mapa;
-- mapa real no relatório usando Google Static Maps API;
-- envio manual para n8n;
-- automação em massa via endpoint para n8n.
+## O que mudou nesta versão
+
+- ícone lateral mais clean para mover o grid;
+- movimento fluido do grid durante o arraste;
+- opção de editar cliente;
+- mapa mais clean no app e no relatório, ocultando estabelecimentos e POIs;
+- relatório 1920 x 1080 totalmente redesenhado, com foco maior no mapa;
+- grid e mapa mantidos sem distorção.
 
 ## Variáveis de ambiente
-
-Configure no EasyPanel:
 
 ```env
 APP_USER=leme
@@ -33,20 +27,16 @@ PORT=3000
 ## APIs do Google necessárias
 
 Frontend:
-
 - Maps JavaScript API
 
 Backend:
-
 - Places API (New)
 - Geocoding API
 - Maps Static API
 
-Importante: para o relatório baixar com mapa real, ative a **Maps Static API** no Google Cloud e adicione essa API nas permissões da chave Backend.
-
 ## EasyPanel
 
-Use o `Dockerfile` do projeto.
+Use o Dockerfile do projeto.
 
 Porta: `3000`
 
@@ -54,40 +44,4 @@ Volume persistente:
 
 ```txt
 /app/data
-```
-
-Não monte volume em `/app`, apenas em `/app/data`.
-
-## Endpoint para n8n disparar tudo
-
-O n8n deve fazer um HTTP Request para:
-
-```txt
-POST https://maps.sistemaleme.com.br/api/automation/run-all
-```
-
-Header:
-
-```json
-{
-  "x-automation-token": "SEU_AUTOMATION_TOKEN"
-}
-```
-
-Body:
-
-```json
-{
-  "sendToN8n": true,
-  "gridSize": 5,
-  "radiusKm": 3,
-  "useSavedGridCenter": true,
-  "keywords": "active_only"
-}
-```
-
-O app gera as análises e envia cada relatório para:
-
-```txt
-https://n8n.adati.app.br/webhook/radar-local-leme
 ```

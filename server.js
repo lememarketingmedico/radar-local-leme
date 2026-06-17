@@ -334,16 +334,21 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   url.searchParams.set('center', `${center.lat},${center.lng}`);
   url.searchParams.set('zoom', String(zoom));
-  // Google Static Maps usa tamanho lógico máximo comum de 640px. O scale=2 entrega imagem em alta definição.
+  // Google Static Maps permite tamanho 640x640 com scale=2 para alta definição.
   url.searchParams.set('size', `${logicalW}x${logicalH}`);
   url.searchParams.set('scale', '2');
   url.searchParams.set('maptype', 'roadmap');
   url.searchParams.set('language', 'pt-BR');
   url.searchParams.set('region', 'br');
   url.searchParams.set('key', GOOGLE_MAPS_BACKEND_KEY);
-  if (scan.clientSnapshot?.profileLat && scan.clientSnapshot?.profileLng) {
-    url.searchParams.append('markers', `size:mid|color:blue|${scan.clientSnapshot.profileLat},${scan.clientSnapshot.profileLng}`);
-  }
+  const styles = [
+    'feature:poi|visibility:off',
+    'feature:transit|visibility:off',
+    'feature:administrative.land_parcel|visibility:off',
+    'feature:poi.business|visibility:off',
+    'feature:poi.park|element:labels|visibility:off'
+  ];
+  styles.forEach(style => url.searchParams.append('style', style));
   const response = await fetch(url.toString());
   const contentType = response.headers.get('content-type') || '';
   const arrayBuffer = await response.arrayBuffer();
@@ -354,7 +359,6 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
     throw new Error(`Maps Static API não retornou mapa real. Verifique se a API está ativada e permitida na chave Backend. ${detail}`);
   }
 
-  // Quando a API está sem permissão, às vezes retorna uma imagem de erro. Esse corte evita exportar relatório falso.
   if (buffer.length < 5000) {
     throw new Error('Maps Static API retornou imagem pequena demais. Verifique faturamento, API e restrições da chave Backend.');
   }
@@ -392,14 +396,17 @@ async function buildReportPng(scan) {
   const settings = readDb().settings;
   const W = 1920;
   const H = 1080;
-  const pad = 46;
-  const headerH = 170;
-  const mapX = pad;
-  const mapY = 382;
-  const mapW = W - pad * 2;
-  const mapH = 540;
-  const logicalW = 900;
-  const logicalH = 540;
+  const pad = 40;
+  const headerH = 118;
+  const contentTop = 182;
+  const leftW = 350;
+  const gap = 34;
+  const mapX = pad + leftW + gap;
+  const mapY = contentTop;
+  const mapW = 1456;
+  const mapH = 819;
+  const logicalW = 640;
+  const logicalH = 360;
   const font = reportFont();
   const logoWhite = readAssetBase64('logo-horizontal-white.png');
 
@@ -409,7 +416,7 @@ async function buildReportPng(scan) {
   const sx = mapW / logicalW;
   const sy = mapH / logicalH;
 
-  const colors = { green: '#00b894', yellow: '#f6c54f', red: '#ef476f', gray: '#8b98a8' };
+  const colors = { green: '#0fb99a', yellow: '#f3c24c', red: '#ef5b7c', gray: '#93a1b2' };
   const pointPixel = (point) => {
     const px = pointToPixel(point, center, zoom, logicalW, logicalH);
     return { x: mapX + px.x * sx, y: mapY + px.y * sy };
@@ -423,7 +430,7 @@ async function buildReportPng(scan) {
         const pt = pointPixel(p);
         return `${i ? 'L' : 'M'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
       }).join(' ');
-      lineEls.push(`<path d="${d}" fill="none" stroke="#173b73" stroke-width="3" stroke-opacity="0.48"/>`);
+      lineEls.push(`<path d="${d}" fill="none" stroke="#355c96" stroke-width="3" stroke-opacity="0.42"/>`);
     }
   }
   for (let col = 0; col < scan.gridSize; col++) {
@@ -433,7 +440,7 @@ async function buildReportPng(scan) {
         const pt = pointPixel(p);
         return `${i ? 'L' : 'M'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
       }).join(' ');
-      lineEls.push(`<path d="${d}" fill="none" stroke="#173b73" stroke-width="3" stroke-opacity="0.48"/>`);
+      lineEls.push(`<path d="${d}" fill="none" stroke="#355c96" stroke-width="3" stroke-opacity="0.42"/>`);
     }
   }
 
@@ -441,22 +448,23 @@ async function buildReportPng(scan) {
     const { x, y } = pointPixel(point);
     const color = colors[point.color] || colors.gray;
     const label = point.position ? String(point.position) : '—';
-    const fontSize = label.length >= 3 ? 20 : label.length === 2 ? 25 : 30;
+    const fontSize = label.length >= 3 ? 18 : label.length === 2 ? 22 : 26;
     return `<g>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="27" fill="#ffffff" fill-opacity="0.92"/>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="22" fill="${color}" stroke="#ffffff" stroke-width="4"/>
-      <text x="${x.toFixed(1)}" y="${(y + 10).toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="900" fill="#071927" font-family="${font}">${escapeXml(label)}</text>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="26" fill="#ffffff" fill-opacity="0.96"/>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="21" fill="${color}" stroke="#ffffff" stroke-width="4"/>
+      <text x="${x.toFixed(1)}" y="${(y + 9).toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="900" fill="#102033" font-family="${font}">${escapeXml(label)}</text>
     </g>`;
-  }).join('\n');
+  }).join('');
 
-  const logo = logoWhite ? `<image href="data:image/png;base64,${logoWhite}" x="86" y="62" width="250" preserveAspectRatio="xMinYMid meet"/>` : `<text x="86" y="108" fill="#fff" font-size="48" font-weight="900" font-family="${font}">LEME</text>`;
+  const logo = logoWhite
+    ? `<image href="data:image/png;base64,${logoWhite}" x="58" y="62" width="218" preserveAspectRatio="xMinYMid meet"/>`
+    : `<text x="58" y="88" fill="#fff" font-size="42" font-weight="900" font-family="${font}">LEME</text>`;
   const date = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(scan.createdAt));
-  const clientName = truncateText(scan.clientName, 48);
-  const reportTitle = truncateText(settings.reportTitle || 'Relatório de Desempenho Local', 44);
-  const keywordLine = truncateText(scan.keyword, 54);
-  const footer = truncateText(settings.reportFooter, 110);
+  const clientName = truncateText(scan.clientName, 38);
+  const reportTitle = truncateText(settings.reportTitle || 'Relatório de Desempenho Local', 38);
+  const keywordLine = truncateText(scan.keyword, 38);
   const cityLine = truncateText(scan.clientCity || '', 24);
-  const nameSize = labelFontSize(clientName, 34);
+  const footer = truncateText(settings.reportFooter, 86);
 
   const cards = [
     ['Posição média', scan.summary.averagePosition ?? '—'],
@@ -464,51 +472,70 @@ async function buildReportPng(scan) {
     ['Top 10', `${scan.summary.top10Percent}%`],
     ['Não apareceu', `${scan.summary.notFoundPercent}%`]
   ];
+  const cardW = 158;
+  const cardH = 122;
   const cardGap = 18;
-  const cardW = (W - pad * 2 - cardGap * 3) / 4;
+  const cardsX = pad;
+  const cardsY = 328;
   const cardEls = cards.map((card, i) => {
-    const x = pad + i * (cardW + cardGap);
-    return `<rect x="${x}" y="218" width="${cardW}" height="118" rx="24" fill="#ffffff" stroke="#d6e3f0" stroke-width="2"/>
-    <rect x="${x}" y="218" width="8" height="118" rx="4" fill="#4f9bd8"/>
-    <text x="${x + 28}" y="260" fill="#728199" font-size="24" font-weight="800" font-family="${font}">${escapeXml(card[0])}</text>
-    <text x="${x + 28}" y="313" fill="#173b73" font-size="50" font-weight="900" font-family="${font}">${escapeXml(card[1])}</text>`;
-  }).join('\n');
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = cardsX + col * (cardW + cardGap);
+    const y = cardsY + row * (cardH + cardGap);
+    return `<rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="24" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+      <text x="${x + 22}" y="${y + 42}" fill="#708199" font-size="22" font-weight="800" font-family="${font}">${escapeXml(card[0])}</text>
+      <text x="${x + 22}" y="${y + 94}" fill="#1b4383" font-size="48" font-weight="900" font-family="${font}">${escapeXml(card[1])}</text>`;
+  }).join('');
 
   const legendItems = [ ['Top 3', colors.green], ['Top 10', colors.yellow], ['11+', colors.red], ['Não apareceu', colors.gray] ];
-  const legend = legendItems.map((it, i) => `<circle cx="${pad + 22 + i * 220}" cy="956" r="11" fill="${it[1]}"/><text x="${pad + 44 + i * 220}" y="964" fill="#65758b" font-size="22" font-weight="800" font-family="${font}">${it[0]}</text>`).join('');
+  const legend = legendItems.map((it, i) => `<g transform="translate(${mapX + 28 + i * 250}, ${mapY + mapH - 26})"><circle cx="0" cy="0" r="10" fill="${it[1]}"/><text x="20" y="8" fill="#5f6f82" font-size="22" font-weight="800" font-family="${font}">${escapeXml(it[0])}</text></g>`).join('');
 
   const best = scan.summary.bestPosition ?? '—';
   const worst = scan.summary.worstPosition ?? '—';
-  const insight = `${scan.summary.top10Percent}% dos pontos estão no Top 10. Posição média: ${scan.summary.averagePosition ?? '—'}. Melhor posição: ${best}. Pior posição: ${worst}.`;
+  const insightLine1 = `${scan.summary.top10Percent}% dos pontos ficaram no Top 10.`;
+  const insightLine2 = `Posição média ${scan.summary.averagePosition ?? '—'}, melhor posição ${best}.`;
+  const insightLine3 = `Pior posição ${worst}.`;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <defs>
-      <linearGradient id="header" x1="0" x2="1"><stop offset="0" stop-color="#173b73"/><stop offset="1" stop-color="#24539b"/></linearGradient>
+      <linearGradient id="header" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#163b73"/>
+        <stop offset="1" stop-color="#27539b"/>
+      </linearGradient>
       <clipPath id="mapClip"><rect x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" rx="28"/></clipPath>
     </defs>
-    <rect width="${W}" height="${H}" fill="#f7f9fc"/>
-    <rect x="28" y="28" width="${W - 56}" height="${headerH}" rx="26" fill="url(#header)"/>
+    <rect width="${W}" height="${H}" fill="#f6f8fc"/>
+    <rect x="40" y="34" width="1840" height="${headerH}" rx="26" fill="url(#header)"/>
     ${logo}
-    <text x="${W - 78}" y="84" text-anchor="end" fill="#ffffff" font-size="34" font-weight="900" font-family="${font}">${escapeXml(reportTitle)}</text>
-    <text x="${W - 78}" y="122" text-anchor="end" fill="#d7e6fb" font-size="20" font-family="${font}">${escapeXml(date)}</text>
-    <text x="${W - 78}" y="164" text-anchor="end" fill="#ffffff" font-size="${nameSize}" font-weight="900" font-family="${font}">${escapeXml(clientName)}</text>
+    <text x="1820" y="88" text-anchor="end" fill="#ffffff" font-size="34" font-weight="900" font-family="${font}">${escapeXml(reportTitle)}</text>
+    <text x="1820" y="120" text-anchor="end" fill="#d7e6fb" font-size="18" font-family="${font}">${escapeXml(date)}</text>
 
-    <text x="${pad}" y="198" fill="#152039" font-size="28" font-weight="900" font-family="${font}">${escapeXml(keywordLine)}</text>
-    <text x="${W - pad}" y="198" text-anchor="end" fill="#728199" font-size="22" font-family="${font}">Grid ${scan.gridSize}x${scan.gridSize} · Raio ${scan.radiusKm} km · ${escapeXml(cityLine)}</text>
+    <text x="${pad}" y="222" fill="#162239" font-size="46" font-weight="900" font-family="${font}">${escapeXml(clientName)}</text>
+    <text x="${pad}" y="262" fill="#465b78" font-size="26" font-weight="700" font-family="${font}">${escapeXml(keywordLine)}</text>
+    <text x="${pad}" y="294" fill="#71829b" font-size="22" font-family="${font}">${escapeXml(cityLine)} · Grid ${scan.gridSize}x${scan.gridSize} · Raio ${scan.radiusKm} km</text>
+
     ${cardEls}
 
-    <text x="${pad}" y="370" fill="#152039" font-size="34" font-weight="900" font-family="${font}">Mapa do grid local</text>
-    <rect x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" rx="28" fill="#ffffff" stroke="#d6e3f0" stroke-width="2"/>
-    <image href="${staticMap.dataUri}" x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#mapClip)"/>
-    <g clip-path="url(#mapClip)">${lineEls.join('\n')}${pointEls}</g>
+    <rect x="${pad}" y="610" width="${leftW}" height="186" rx="24" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+    <text x="${pad + 24}" y="648" fill="#162239" font-size="28" font-weight="900" font-family="${font}">Leitura rápida</text>
+    <text x="${pad + 24}" y="692" fill="#5f6f82" font-size="22" font-family="${font}">${escapeXml(insightLine1)}</text>
+    <text x="${pad + 24}" y="726" fill="#5f6f82" font-size="22" font-family="${font}">${escapeXml(insightLine2)}</text>
+    <text x="${pad + 24}" y="760" fill="#5f6f82" font-size="22" font-family="${font}">${escapeXml(insightLine3)}</text>
+
+    <rect x="${pad}" y="824" width="${leftW}" height="177" rx="24" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+    <text x="${pad + 24}" y="862" fill="#162239" font-size="28" font-weight="900" font-family="${font}">Observações</text>
+    <text x="${pad + 24}" y="904" fill="#5f6f82" font-size="22" font-family="${font}">Mapa limpo para destacar o grid e a malha urbana.</text>
+    <text x="${pad + 24}" y="938" fill="#5f6f82" font-size="22" font-family="${font}">Resultado baseado em busca geolocalizada via Google Places.</text>
+    <text x="${pad + 24}" y="972" fill="#5f6f82" font-size="22" font-family="${font}">Ideal para comparação de evolução ao longo do tempo.</text>
+
+    <rect x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" rx="28" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+    <image href="${staticMap.dataUri}" x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" preserveAspectRatio="none" clip-path="url(#mapClip)"/>
+    <g clip-path="url(#mapClip)">${lineEls.join('')} ${pointEls}</g>
     <rect x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" rx="28" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2"/>
     ${legend}
 
-    <rect x="${pad}" y="982" width="${W - pad * 2}" height="64" rx="18" fill="#ffffff" stroke="#d6e3f0" stroke-width="2"/>
-    <text x="${pad + 26}" y="1007" fill="#152039" font-size="21" font-weight="900" font-family="${font}">Leitura rápida</text>
-    <text x="${pad + 26}" y="1035" fill="#65758b" font-size="19" font-family="${font}">${escapeXml(insight)}</text>
-    <text x="${pad}" y="1068" fill="#728199" font-size="19" font-weight="800" font-family="${font}">${escapeXml(settings.agencyName)} · Radar Local</text>
-    <text x="${W - pad}" y="1068" text-anchor="end" fill="#8a98aa" font-size="16" font-family="${font}">${escapeXml(footer)}</text>
+    <text x="${pad}" y="1046" fill="#71829b" font-size="20" font-weight="800" font-family="${font}">${escapeXml(settings.agencyName)} · Radar Local</text>
+    <text x="1820" y="1046" text-anchor="end" fill="#93a1b2" font-size="16" font-family="${font}">${escapeXml(footer)}</text>
   </svg>`;
   return await sharp(Buffer.from(svg)).png().toBuffer();
 }
