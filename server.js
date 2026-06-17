@@ -334,7 +334,7 @@ function pointToPixel(point, center, zoom, width, height) {
 function chooseZoom(points, center, width, height) {
   for (let zoom = 18; zoom >= 4; zoom--) {
     const coords = points.map(p => pointToPixel(p, center, zoom, width, height));
-    const margin = 6;
+    const margin = 42;
     const fits = coords.every(p => p.x >= margin && p.x <= width - margin && p.y >= margin && p.y <= height - margin);
     if (fits) return zoom;
   }
@@ -346,8 +346,7 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
     throw new Error('GOOGLE_MAPS_BACKEND_KEY não configurada.');
   }
   const center = scan.center;
-  const baseZoom = chooseZoom(scan.points, center, logicalW, logicalH);
-  const zoom = Math.min(18, baseZoom + 1);
+  const zoom = chooseZoom(scan.points, center, logicalW, logicalH);
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   url.searchParams.set('center', `${center.lat},${center.lng}`);
   url.searchParams.set('zoom', String(zoom));
