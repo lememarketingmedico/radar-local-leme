@@ -1,20 +1,33 @@
-# Radar Local LEME V4.3
+# Radar Local LEME V4.3 - Insights Clientes
 
-Ajustes desta versão:
+Esta versão adiciona o módulo **Insights Clientes**, sem usar o nome GBP na interface.
 
-- relatório com recorte dinâmico do mapa para o grid ficar maior, sem cortar pontos;
-- Análise rápida agora pode ser ajustada na tela de preview do grid antes de rodar;
-- mantém ranking de concorrentes e botão para gerar grid do concorrente;
-- mantém modo cliente, histórico, n8n e automação.
+## Novidades
 
-## Atualização
+- botão **Insights Clientes** no menu;
+- conexão com conta Google via OAuth;
+- sincronização dos perfis administrados pela conta Google da LEME;
+- geração de relatório de insights por perfil e período;
+- relatório PNG com impressões, interações, chamadas, rotas e visitas ao site.
 
-Suba os arquivos da pasta para a raiz do GitHub. Não suba pasta `data`.
+## Variáveis novas no EasyPanel
 
-No EasyPanel, mantenha o volume:
-
-```txt
-/app/data
+```env
+GOOGLE_OAUTH_CLIENT_ID=cole_o_client_id_aqui
+GOOGLE_OAUTH_CLIENT_SECRET=cole_o_client_secret_aqui
+GOOGLE_OAUTH_REDIRECT_URI=https://maps.sistemaleme.com.br/api/google/callback
+GOOGLE_INSIGHTS_SCOPES=https://www.googleapis.com/auth/business.manage
+TOKEN_ENCRYPTION_SECRET=texto-grande-com-32-ou-mais-caracteres
 ```
 
-Depois faça Forçar reconstrução.
+Mantenha também as variáveis antigas do Radar Local.
+
+## APIs necessárias no Google Cloud
+
+- Business Profile Performance API
+- Business Information API
+- Account Management API
+
+## Importante
+
+Não suba a pasta `data` para o GitHub. O volume persistente no EasyPanel deve continuar como `/app/data`.

@@ -35,6 +35,7 @@
         <button class="nav-btn" data-view="scan">Nova análise</button>
         <button class="nav-btn" data-view="prospect">Análise rápida</button>
         <button class="nav-btn" data-view="history">Histórico</button>
+        <button class="nav-btn" data-view="insights">Insights Clientes</button>
         <button class="nav-btn" data-view="automation">Automação</button>
         <button class="nav-btn" data-view="settings">Configurações</button>
       </nav>
@@ -238,6 +239,40 @@
         <div class="panel">
           <div class="panel-title-row"><h2>Histórico</h2><button class="secondary" id="reloadHistoryBtn">Atualizar lista</button></div>
           <div id="historyList" class="list"></div>
+        </div>
+      </section>
+
+
+      <section id="insightsView" class="view hidden">
+        <div class="grid-2">
+          <div class="panel">
+            <h2>Insights Clientes</h2>
+            <p class="panel-subtitle">Conecte a conta Google da LEME, sincronize os perfis administrados e gere relatórios de desempenho.</p>
+            <div id="insightsConnection" class="status-box"></div>
+            <div class="button-row">
+              <a class="button-like" id="connectInsightsBtn" href="/api/insights/connect">Conectar conta Google</a>
+              <button type="button" class="secondary" id="syncInsightsBtn">Atualizar perfis</button>
+              <button type="button" class="secondary danger-mini" id="disconnectInsightsBtn">Desconectar</button>
+            </div>
+            <form id="insightsReportForm" class="stack-form">
+              <label>Perfil do cliente</label>
+              <select name="locationName" id="insightsLocationSelect"></select>
+              <div class="field-row">
+                <div><label>Data inicial</label><input name="startDate" type="date" required /></div>
+                <div><label>Data final</label><input name="endDate" type="date" required /></div>
+              </div>
+              <button type="submit">Gerar relatório de insights</button>
+            </form>
+            <div id="insightsStatus" class="status-box hidden"></div>
+          </div>
+          <div class="panel">
+            <h2>Resultado</h2>
+            <div id="insightsSummary" class="summary-grid"></div>
+            <div id="insightsReportActions" class="report-actions hidden">
+              <a id="downloadInsightsReportBtn" class="button-like secondary" target="_blank">Baixar PNG</a>
+            </div>
+            <div id="insightsProfilesList" class="list"></div>
+          </div>
         </div>
       </section>
 

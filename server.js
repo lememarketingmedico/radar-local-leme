@@ -17,6 +17,11 @@ const GOOGLE_MAPS_FRONTEND_KEY = process.env.GOOGLE_MAPS_FRONTEND_KEY || '';
 const GOOGLE_MAPS_BACKEND_KEY = process.env.GOOGLE_MAPS_BACKEND_KEY || '';
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.adati.app.br/webhook/radar-local-leme';
 const AUTOMATION_TOKEN = process.env.AUTOMATION_TOKEN || 'troque-este-token';
+const GOOGLE_OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+const GOOGLE_OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
+const GOOGLE_OAUTH_REDIRECT_URI = process.env.GOOGLE_OAUTH_REDIRECT_URI || 'https://maps.sistemaleme.com.br/api/google/callback';
+const GOOGLE_INSIGHTS_SCOPES = process.env.GOOGLE_INSIGHTS_SCOPES || process.env.GOOGLE_GBP_SCOPES || 'https://www.googleapis.com/auth/business.manage';
+const TOKEN_ENCRYPTION_SECRET = process.env.TOKEN_ENCRYPTION_SECRET || SESSION_SECRET;
 
 const sessions = new Map();
 const runningJobs = new Map();
@@ -51,6 +56,9 @@ function readDb() {
   parsed.keywords ||= [];
   parsed.scans ||= [];
   parsed.jobs ||= [];
+  parsed.insightsProfiles ||= [];
+  parsed.insightsReports ||= [];
+  parsed.insightsGoogle ||= { token: null, connectedEmail: '', connectedAt: null, updatedAt: null };
   parsed.settings = { ...defaultSettings(), ...(parsed.settings || {}) };
   return parsed;
 }
@@ -490,6 +498,257 @@ function fallbackMapSvg(scan, mapW, mapH) {
   <rect x="32" y="32" width="${mapW - 64}" height="${mapH - 64}" rx="22" fill="#ffffff" stroke="#d6e3f0" stroke-width="2"/>
   <text x="${mapW / 2}" y="${mapH / 2 - 18}" text-anchor="middle" fill="#163f73" font-size="30" font-weight="900" font-family="${reportFont()}">Mapa real indisponível</text>
   <text x="${mapW / 2}" y="${mapH / 2 + 24}" text-anchor="middle" fill="#65758b" font-size="22" font-family="${reportFont()}">Ative a Maps Static API e libere a chave Backend.</text>`;
+}
+
+function cryptoKey() {
+  return crypto.createHash('sha256').update(String(TOKEN_ENCRYPTION_SECRET || SESSION_SECRET)).digest();
+}
+
+function encryptJson(value) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', cryptoKey(), iv);
+  const plaintext = Buffer.from(JSON.stringify(value), 'utf8');
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString('base64url');
+}
+
+function decryptJson(value) {
+  if (!value) return null;
+  const raw = Buffer.from(value, 'base64url');
+  const iv = raw.subarray(0, 12);
+  const tag = raw.subarray(12, 28);
+  const encrypted = raw.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', cryptoKey(), iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return JSON.parse(decrypted.toString('utf8'));
+}
+
+function getStoredGoogleToken() {
+  const db = readDb();
+  try {
+    return db.insightsGoogle?.token ? decryptJson(db.insightsGoogle.token) : null;
+  } catch (error) {
+    console.warn('Falha ao descriptografar token Google:', error.message);
+    return null;
+  }
+}
+
+function saveGoogleToken(token, email = '') {
+  const db = readDb();
+  db.insightsGoogle ||= {};
+  db.insightsGoogle.token = encryptJson(token);
+  if (email) db.insightsGoogle.connectedEmail = email;
+  db.insightsGoogle.connectedAt ||= new Date().toISOString();
+  db.insightsGoogle.updatedAt = new Date().toISOString();
+  writeDb(db);
+}
+
+async function refreshGoogleTokenIfNeeded() {
+  let token = getStoredGoogleToken();
+  if (!token) throw new Error('Conta Google ainda não conectada.');
+  const expiresAt = Number(token.expires_at || 0);
+  if (token.access_token && expiresAt > Date.now() + 60_000) return token.access_token;
+  if (!token.refresh_token) throw new Error('Token expirado e sem refresh_token. Conecte a conta Google novamente.');
+  const params = new URLSearchParams({
+    client_id: GOOGLE_OAUTH_CLIENT_ID,
+    client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+    refresh_token: token.refresh_token,
+    grant_type: 'refresh_token'
+  });
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error_description || data.error || 'Falha ao renovar token Google.');
+  token = { ...token, ...data, expires_at: Date.now() + Number(data.expires_in || 3600) * 1000 };
+  saveGoogleToken(token);
+  return token.access_token;
+}
+
+async function googleJson(url, options = {}) {
+  const accessToken = await refreshGoogleTokenIfNeeded();
+  const response = await fetch(url, { ...options, headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json', ...(options.headers || {}) } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const msg = data.error?.message || data.error_description || data.error || `Erro Google ${response.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function getGoogleUserInfo(accessToken) {
+  try {
+    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) return {};
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function addressToText(address) {
+  if (!address) return '';
+  if (typeof address === 'string') return address;
+  const parts = [];
+  if (address.addressLines?.length) parts.push(address.addressLines.join(', '));
+  if (address.locality) parts.push(address.locality);
+  if (address.administrativeArea) parts.push(address.administrativeArea);
+  if (address.postalCode) parts.push(address.postalCode);
+  return parts.filter(Boolean).join(' - ');
+}
+
+async function listInsightsAccounts() {
+  const data = await googleJson('https://mybusinessaccountmanagement.googleapis.com/v1/accounts');
+  return data.accounts || [];
+}
+
+async function listInsightsLocations() {
+  const accounts = await listInsightsAccounts();
+  const locations = [];
+  for (const account of accounts) {
+    let pageToken = '';
+    do {
+      const url = new URL(`https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations`);
+      url.searchParams.set('readMask', 'name,title,storefrontAddress,metadata');
+      url.searchParams.set('pageSize', '100');
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+      const data = await googleJson(url.toString());
+      (data.locations || []).forEach(location => {
+        locations.push({
+          accountName: account.name,
+          accountDisplayName: account.accountName || account.name,
+          name: location.name,
+          title: location.title || location.name,
+          address: addressToText(location.storefrontAddress),
+          placeId: location.metadata?.placeId || '',
+          mapsUri: location.metadata?.mapsUri || ''
+        });
+      });
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+  }
+  return locations;
+}
+
+function dateParts(dateText) {
+  const date = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(date.getTime())) throw new Error('Data inválida.');
+  return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() };
+}
+
+function extractDatedValues(timeSeries) {
+  const values = timeSeries?.datedValues || timeSeries?.timeSeries?.datedValues || [];
+  return values.map(item => ({
+    date: `${item.date?.year || ''}-${String(item.date?.month || '').padStart(2, '0')}-${String(item.date?.day || '').padStart(2, '0')}`,
+    value: Number(item.value || 0)
+  })).filter(v => v.date && Number.isFinite(v.value));
+}
+
+function parsePerformanceResponse(data) {
+  const metrics = {};
+  const series = data.multiDailyMetricTimeSeries || [];
+  for (const multi of series) {
+    for (const entry of (multi.dailyMetricTimeSeries || [])) {
+      const metric = entry.dailyMetric || 'UNKNOWN';
+      const values = extractDatedValues(entry.timeSeries ? entry : entry);
+      metrics[metric] ||= { total: 0, values: [] };
+      values.forEach(v => {
+        metrics[metric].values.push(v);
+        metrics[metric].total += v.value;
+      });
+    }
+  }
+  Object.values(metrics).forEach(m => m.total = Number(m.total || 0));
+  return metrics;
+}
+
+function sumMetrics(metrics, names) {
+  return names.reduce((sum, name) => sum + Number(metrics[name]?.total || 0), 0);
+}
+
+async function fetchInsightsMetrics(locationName, startDate, endDate) {
+  const start = dateParts(startDate);
+  const end = dateParts(endDate);
+  const metrics = [
+    'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
+    'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH',
+    'BUSINESS_IMPRESSIONS_MOBILE_MAPS',
+    'BUSINESS_IMPRESSIONS_MOBILE_SEARCH',
+    'BUSINESS_DIRECTION_REQUESTS',
+    'CALL_CLICKS',
+    'WEBSITE_CLICKS'
+  ];
+  const safeLocation = String(locationName).replace(/^locations\//, 'locations/');
+  const url = new URL(`https://businessprofileperformance.googleapis.com/v1/${safeLocation}:fetchMultiDailyMetricsTimeSeries`);
+  metrics.forEach(metric => url.searchParams.append('dailyMetrics', metric));
+  url.searchParams.set('dailyRange.start_date.year', String(start.year));
+  url.searchParams.set('dailyRange.start_date.month', String(start.month));
+  url.searchParams.set('dailyRange.start_date.day', String(start.day));
+  url.searchParams.set('dailyRange.end_date.year', String(end.year));
+  url.searchParams.set('dailyRange.end_date.month', String(end.month));
+  url.searchParams.set('dailyRange.end_date.day', String(end.day));
+  const data = await googleJson(url.toString());
+  return parsePerformanceResponse(data);
+}
+
+function insightsSummary(metrics) {
+  const impressionsSearch = sumMetrics(metrics, ['BUSINESS_IMPRESSIONS_DESKTOP_SEARCH', 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH']);
+  const impressionsMaps = sumMetrics(metrics, ['BUSINESS_IMPRESSIONS_DESKTOP_MAPS', 'BUSINESS_IMPRESSIONS_MOBILE_MAPS']);
+  const totalImpressions = impressionsSearch + impressionsMaps;
+  const calls = sumMetrics(metrics, ['CALL_CLICKS']);
+  const directions = sumMetrics(metrics, ['BUSINESS_DIRECTION_REQUESTS']);
+  const website = sumMetrics(metrics, ['WEBSITE_CLICKS']);
+  const totalInteractions = calls + directions + website;
+  return {
+    impressionsSearch,
+    impressionsMaps,
+    totalImpressions,
+    mobileSearch: Number(metrics.BUSINESS_IMPRESSIONS_MOBILE_SEARCH?.total || 0),
+    desktopSearch: Number(metrics.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH?.total || 0),
+    mobileMaps: Number(metrics.BUSINESS_IMPRESSIONS_MOBILE_MAPS?.total || 0),
+    desktopMaps: Number(metrics.BUSINESS_IMPRESSIONS_DESKTOP_MAPS?.total || 0),
+    calls,
+    directions,
+    website,
+    totalInteractions
+  };
+}
+
+async function buildInsightsReportPng(report) {
+  const W = 1600, H = 2000;
+  const font = reportFont();
+  const logoWhite = readAssetBase64('logo-horizontal-white.png');
+  const s = report.summary || {};
+  const logo = logoWhite ? `<image href="data:image/png;base64,${logoWhite}" x="70" y="58" width="230" preserveAspectRatio="xMinYMid meet"/>` : `<text x="70" y="105" fill="#fff" font-size="46" font-weight="900" font-family="${font}">LEME</text>`;
+  const card = (x, y, w, h, label, value) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="26" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/><text x="${x+28}" y="${y+48}" fill="#6b7b90" font-size="24" font-weight="800" font-family="${font}">${escapeXml(label)}</text><text x="${x+28}" y="${y+122}" fill="#1b4383" font-size="66" font-weight="900" font-family="${font}">${escapeXml(value ?? 0)}</text>`;
+  const maxImp = Math.max(1, s.mobileSearch || 0, s.desktopSearch || 0, s.mobileMaps || 0, s.desktopMaps || 0);
+  const bar = (label, value, y, color) => { const w = Math.max(8, Math.round((value / maxImp) * 650)); return `<text x="90" y="${y+25}" fill="#24344c" font-size="25" font-weight="800" font-family="${font}">${escapeXml(label)}</text><rect x="420" y="${y}" width="650" height="34" rx="17" fill="#e9f0f7"/><rect x="420" y="${y}" width="${w}" height="34" rx="17" fill="${color}"/><text x="1100" y="${y+26}" fill="#24344c" font-size="25" font-weight="900" font-family="${font}">${value}</text>`; };
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect width="${W}" height="${H}" fill="#f6f8fc"/>
+    <rect x="40" y="35" width="1520" height="150" rx="30" fill="#173b73"/>
+    ${logo}
+    <text x="1510" y="92" text-anchor="end" fill="#ffffff" font-size="42" font-weight="900" font-family="${font}">Insights Clientes</text>
+    <text x="1510" y="134" text-anchor="end" fill="#d7e6fb" font-size="24" font-family="${font}">${escapeXml(report.startDate)} a ${escapeXml(report.endDate)}</text>
+    <text x="70" y="260" fill="#162239" font-size="54" font-weight="900" font-family="${font}">${escapeXml(truncateText(report.locationTitle, 42))}</text>
+    <text x="70" y="304" fill="#6b7b90" font-size="26" font-family="${font}">${escapeXml(truncateText(report.address, 82))}</text>
+    ${card(70, 370, 340, 170, 'Impressões', s.totalImpressions)}
+    ${card(445, 370, 340, 170, 'Interações', s.totalInteractions)}
+    ${card(820, 370, 340, 170, 'Chamadas', s.calls)}
+    ${card(1195, 370, 340, 170, 'Rotas', s.directions)}
+    <rect x="70" y="610" width="1465" height="420" rx="30" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+    <text x="90" y="670" fill="#162239" font-size="38" font-weight="900" font-family="${font}">Impressões por origem</text>
+    ${bar('Mobile - Busca', s.mobileSearch || 0, 725, '#24539b')}
+    ${bar('Desktop - Busca', s.desktopSearch || 0, 790, '#4f9bd8')}
+    ${bar('Mobile - Mapa', s.mobileMaps || 0, 855, '#0fb99a')}
+    ${bar('Desktop - Mapa', s.desktopMaps || 0, 920, '#f3c24c')}
+    <rect x="70" y="1090" width="1465" height="360" rx="30" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
+    <text x="90" y="1150" fill="#162239" font-size="38" font-weight="900" font-family="${font}">Interações com o perfil</text>
+    ${card(105, 1200, 400, 150, 'Visitas ao site', s.website)}
+    ${card(600, 1200, 400, 150, 'Solicitações de rota', s.directions)}
+    ${card(1095, 1200, 400, 150, 'Chamadas', s.calls)}
+    <text x="70" y="1535" fill="#6b7b90" font-size="24" font-family="${font}">Relatório gerado pelo Radar Local LEME com dados autorizados da conta Google conectada.</text>
+  </svg>`;
+  return await sharp(Buffer.from(svg)).png().toBuffer();
 }
 
 async function buildReportPng(scan) {
@@ -940,7 +1199,8 @@ app.get('/api/config', requireAuth, (req, res) => {
     defaultRadiusKm: db.settings.defaultRadiusKm,
     defaultTheme: db.settings.defaultTheme,
     webhookConfigured: Boolean(db.settings.n8nResultWebhookUrl),
-    webhookUrl: String(db.settings.n8nResultWebhookUrl || '').replace(/\/webhook\/.+$/, '/webhook/...')
+    webhookUrl: String(db.settings.n8nResultWebhookUrl || '').replace(/\/webhook\/.+$/, '/webhook/...'),
+    insightsConfigured: Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_OAUTH_REDIRECT_URI)
   });
 });
 
@@ -1390,6 +1650,128 @@ app.put('/api/settings', requireAuth, (req, res) => {
   if (req.body.defaultRadiusKm !== undefined) db.settings.defaultRadiusKm = sanitizeRadius(req.body.defaultRadiusKm);
   writeDb(db);
   res.json(db.settings);
+});
+
+app.get('/api/insights/status', requireAuth, (req, res) => {
+  const db = readDb();
+  res.json({
+    connected: Boolean(db.insightsGoogle?.token),
+    connectedEmail: db.insightsGoogle?.connectedEmail || '',
+    connectedAt: db.insightsGoogle?.connectedAt || null,
+    profiles: db.insightsProfiles || [],
+    reports: (db.insightsReports || []).slice(0, 20),
+    oauthConfigured: Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_OAUTH_REDIRECT_URI)
+  });
+});
+
+app.get('/api/insights/connect', requireAuth, (req, res) => {
+  if (!GOOGLE_OAUTH_CLIENT_ID || !GOOGLE_OAUTH_CLIENT_SECRET) return res.status(400).send('Variáveis GOOGLE_OAUTH_CLIENT_ID e GOOGLE_OAUTH_CLIENT_SECRET não configuradas.');
+  const stateValue = crypto.randomBytes(16).toString('hex');
+  const cookie = `google_oauth_state=${stateValue}.${sign(stateValue)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`;
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id', GOOGLE_OAUTH_CLIENT_ID);
+  url.searchParams.set('redirect_uri', GOOGLE_OAUTH_REDIRECT_URI);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', GOOGLE_INSIGHTS_SCOPES);
+  url.searchParams.set('access_type', 'offline');
+  url.searchParams.set('prompt', 'consent');
+  url.searchParams.set('state', stateValue);
+  res.setHeader('Set-Cookie', cookie);
+  res.redirect(url.toString());
+});
+
+app.get('/api/google/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const rawState = getCookie(req, 'google_oauth_state');
+    const [savedState, savedSig] = String(rawState || '').split('.');
+    if (!code || !state || !savedState || savedState !== state || sign(savedState) !== savedSig) throw new Error('Estado OAuth inválido. Tente conectar novamente.');
+    const params = new URLSearchParams({
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+      redirect_uri: GOOGLE_OAUTH_REDIRECT_URI,
+      code: String(code),
+      grant_type: 'authorization_code'
+    });
+    const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error_description || data.error || 'Falha ao conectar Google.');
+    const token = { ...data, expires_at: Date.now() + Number(data.expires_in || 3600) * 1000 };
+    const user = await getGoogleUserInfo(token.access_token);
+    saveGoogleToken(token, user.email || 'Conta Google conectada');
+    res.setHeader('Set-Cookie', 'google_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+    res.send('<html><body style="font-family:Arial;padding:32px"><h2>Conta Google conectada.</h2><p>Você já pode voltar ao Radar Local LEME e usar Insights Clientes.</p><script>setTimeout(()=>location.href="/",1200)</script></body></html>');
+  } catch (error) {
+    res.status(400).send(`<html><body style="font-family:Arial;padding:32px"><h2>Erro ao conectar</h2><p>${escapeXml(error.message)}</p><a href="/">Voltar</a></body></html>`);
+  }
+});
+
+app.post('/api/insights/disconnect', requireAuth, (req, res) => {
+  const db = readDb();
+  db.insightsGoogle = { token: null, connectedEmail: '', connectedAt: null, updatedAt: new Date().toISOString() };
+  writeDb(db);
+  res.json({ ok: true });
+});
+
+app.post('/api/insights/sync-locations', requireAuth, async (req, res) => {
+  try {
+    const profiles = await listInsightsLocations();
+    const db = readDb();
+    db.insightsProfiles = profiles.map(profile => ({ ...profile, syncedAt: new Date().toISOString() }));
+    writeDb(db);
+    res.json({ ok: true, profiles: db.insightsProfiles });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/insights/locations', requireAuth, (req, res) => {
+  const db = readDb();
+  res.json(db.insightsProfiles || []);
+});
+
+app.post('/api/insights/report', requireAuth, async (req, res) => {
+  try {
+    const locationName = String(req.body.locationName || '').trim();
+    if (!locationName) return res.status(400).json({ error: 'Selecione um perfil.' });
+    const startDate = String(req.body.startDate || '').trim();
+    const endDate = String(req.body.endDate || '').trim();
+    if (!startDate || !endDate) return res.status(400).json({ error: 'Informe data inicial e final.' });
+    const db = readDb();
+    const profile = (db.insightsProfiles || []).find(p => p.name === locationName) || { name: locationName, title: locationName, address: '' };
+    const metrics = await fetchInsightsMetrics(locationName, startDate, endDate);
+    const report = {
+      id: id('ins'),
+      locationName,
+      locationTitle: profile.title || locationName,
+      address: profile.address || '',
+      startDate,
+      endDate,
+      metrics,
+      summary: insightsSummary(metrics),
+      createdAt: new Date().toISOString()
+    };
+    db.insightsReports.unshift(report);
+    db.insightsReports = db.insightsReports.slice(0, 100);
+    writeDb(db);
+    res.json(report);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/insights/reports/:id/report.png', requireAuth, async (req, res) => {
+  const db = readDb();
+  const report = (db.insightsReports || []).find(r => r.id === req.params.id);
+  if (!report) return res.status(404).send('Relatório não encontrado.');
+  try {
+    const png = await buildInsightsReportPng(report);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename="${slug(report.locationTitle)}-insights-clientes.png"`);
+    res.send(png);
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
 app.get('*', (req, res) => {

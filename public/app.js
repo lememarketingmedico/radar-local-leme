@@ -5,6 +5,7 @@ const state = {
   jobs: [],
   settings: {},
   config: null,
+  insights: { connected: false, profiles: [], reports: [] },
   map: null,
   resultMarkers: [],
   previewMarkers: [],
@@ -121,13 +122,14 @@ function startAutoRefresh() {
 
 async function loadAll({ silent = false } = {}) {
   try {
-    const [config, clients, keywords, scans, jobs, settings] = await Promise.all([
+    const [config, clients, keywords, scans, jobs, settings, insights] = await Promise.all([
       api('/api/config'),
       api('/api/clients'),
       api('/api/keywords'),
       api('/api/scans'),
       api('/api/automation/jobs'),
-      api('/api/settings')
+      api('/api/settings'),
+      api('/api/insights/status')
     ]);
     state.config = config;
     state.clients = clients;
@@ -135,6 +137,7 @@ async function loadAll({ silent = false } = {}) {
     state.scans = scans;
     state.jobs = jobs;
     state.settings = settings;
+    state.insights = insights || { connected: false, profiles: [], reports: [] };
     renderAll();
     if (!silent) setSync('Atualizado agora');
   } catch (err) {
@@ -156,6 +159,7 @@ function renderAll() {
   renderHistory();
   renderJobs();
   renderSettingsForm();
+  renderInsights();
 }
 
 function renderMetrics() {
@@ -299,6 +303,60 @@ function renderSettingsForm() {
   form.dataset.filled = 'true';
 }
 
+function setDefaultInsightDates() {
+  const form = $('#insightsReportForm');
+  if (!form || form.dataset.datesSet === 'true') return;
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 90);
+  form.startDate.value = start.toISOString().slice(0, 10);
+  form.endDate.value = end.toISOString().slice(0, 10);
+  form.dataset.datesSet = 'true';
+}
+
+function renderInsights() {
+  const insights = state.insights || { connected: false, profiles: [], reports: [] };
+  const conn = $('#insightsConnection');
+  if (!conn) return;
+  setDefaultInsightDates();
+  conn.classList.remove('hidden');
+  if (!insights.oauthConfigured) {
+    conn.innerHTML = 'Configure as variáveis GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET e GOOGLE_OAUTH_REDIRECT_URI no EasyPanel.';
+  } else if (insights.connected) {
+    conn.innerHTML = `Conta conectada: <strong>${escapeHtml(insights.connectedEmail || 'Google')}</strong>`;
+  } else {
+    conn.innerHTML = 'Nenhuma conta Google conectada ainda.';
+  }
+
+  const select = $('#insightsLocationSelect');
+  if (select) {
+    const profiles = insights.profiles || [];
+    select.innerHTML = profiles.length
+      ? profiles.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.title || p.name)}</option>`).join('')
+      : '<option value="">Nenhum perfil sincronizado</option>';
+  }
+
+  const list = $('#insightsProfilesList');
+  if (list) {
+    const profiles = insights.profiles || [];
+    const reports = insights.reports || [];
+    const latest = reports[0];
+    list.innerHTML = `<div class="item"><strong>Perfis sincronizados</strong><p>${profiles.length} perfil(is) encontrados na conta conectada.</p></div>` +
+      (latest ? `<div class="item"><strong>Último relatório</strong><small>${escapeHtml(latest.locationTitle || '')} · ${fmtDate(latest.createdAt)}</small><p>Impressões: ${latest.summary?.totalImpressions || 0} · Interações: ${latest.summary?.totalInteractions || 0}</p><a class="button-like secondary" href="/api/insights/reports/${latest.id}/report.png" target="_blank">Abrir relatório</a></div>` : '<div class="item"><p>Nenhum relatório de insights gerado ainda.</p></div>');
+  }
+}
+
+function renderInsightsResult(report) {
+  const summary = report.summary || {};
+  $('#insightsSummary').innerHTML = `<div class="summary-card"><span>Impressões</span><strong>${summary.totalImpressions || 0}</strong></div>
+    <div class="summary-card"><span>Interações</span><strong>${summary.totalInteractions || 0}</strong></div>
+    <div class="summary-card"><span>Chamadas</span><strong>${summary.calls || 0}</strong></div>
+    <div class="summary-card"><span>Rotas</span><strong>${summary.directions || 0}</strong></div>
+    <div class="summary-card"><span>Site</span><strong>${summary.website || 0}</strong></div>`;
+  $('#downloadInsightsReportBtn').href = `/api/insights/reports/${report.id}/report.png`;
+  $('#insightsReportActions').classList.remove('hidden');
+}
+
 function setView(viewName, options = {}) {
   $$('.view').forEach(v => v.classList.add('hidden'));
   $(`#${viewName}View`).classList.remove('hidden');
@@ -310,6 +368,7 @@ function setView(viewName, options = {}) {
     scan: ['Nova análise', 'Ajuste o grid no mapa antes de rodar.'],
     prospect: ['Análise rápida', 'Gere grid para prospecção sem cadastrar cliente.'],
     history: ['Histórico', 'Compare análises já realizadas.'],
+    insights: ['Insights Clientes', 'Relatórios de impressões, chamadas, rotas e visitas ao site.'],
     automation: ['Automação', 'Rode análises em massa para clientes ativos.'],
     settings: ['Configurações', 'Controle webhook, relatório e padrões.']
   };
@@ -781,6 +840,41 @@ $('#prospectRunForm')?.addEventListener('submit', async (e) => {
     renderScanResult(scan, 'result');
   } catch (err) {
     status.textContent = `Erro: ${err.message}`;
+  }
+});
+
+$('#syncInsightsBtn')?.addEventListener('click', async () => {
+  const box = $('#insightsStatus');
+  box.classList.remove('hidden');
+  box.textContent = 'Sincronizando perfis...';
+  try {
+    await api('/api/insights/sync-locations', { method: 'POST', body: JSON.stringify({}) });
+    await loadAll();
+    box.textContent = 'Perfis sincronizados.';
+  } catch (err) {
+    box.textContent = err.message;
+  }
+});
+
+$('#disconnectInsightsBtn')?.addEventListener('click', async () => {
+  if (!confirm('Desconectar a conta Google de Insights Clientes?')) return;
+  await api('/api/insights/disconnect', { method: 'POST', body: JSON.stringify({}) });
+  await loadAll();
+});
+
+$('#insightsReportForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = Object.fromEntries(new FormData(e.currentTarget));
+  const box = $('#insightsStatus');
+  box.classList.remove('hidden');
+  box.textContent = 'Gerando relatório de insights...';
+  try {
+    const report = await api('/api/insights/report', { method: 'POST', body: JSON.stringify(form) });
+    renderInsightsResult(report);
+    await loadAll({ silent: true });
+    box.textContent = 'Relatório gerado.';
+  } catch (err) {
+    box.textContent = err.message;
   }
 });
 
