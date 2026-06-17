@@ -1,20 +1,15 @@
-# Radar Local LEME V3.8
+# Radar Local LEME V3.9
 
-Atualização com ranking opcional de concorrentes.
+Correção da V3.9:
 
-## Novo nesta versão
+- corrige o erro de sessão `Não autenticado`;
+- sessão agora é validada por cookie assinado, sem depender de memória do servidor;
+- após rebuild/restart do EasyPanel, a sessão não quebra desde que `SESSION_SECRET` continue igual;
+- quando a sessão realmente expira, o app volta para a tela de login em vez de quebrar o mapa;
+- mantém ranking de concorrentes opcional e relatórios anteriores.
 
-- Mantém o relatório visual com grid completo.
-- Adiciona a opção **Incluir ranking de concorrentes** na análise manual.
-- Após rodar o grid com essa opção marcada, o resultado mostra os perfis concorrentes em ordem de posição média, com melhor posição, aparições e Top 10.
-- O ranking de concorrentes também fica salvo no histórico da análise.
+## Importante
 
-## Atenção sobre custo
-
-A análise normal continua usando apenas IDs. O ranking de concorrentes precisa buscar `displayName`, então pode cair em SKU pago da Places API. Use essa opção quando precisar da lista, não em todas as automações.
-
-## Deploy
-
-Suba os arquivos da pasta para a raiz do GitHub e faça Forçar reconstrução no EasyPanel.
-
-Mantenha o volume persistente em `/app/data` e não suba pasta `data` para o GitHub.
+Mantenha a variável `SESSION_SECRET` fixa no EasyPanel. Não deixe vazia e não mude entre versões.
+Continue usando o volume persistente em `/app/data`.
+Não suba a pasta `data` para o GitHub.

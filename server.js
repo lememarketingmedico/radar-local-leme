@@ -92,8 +92,9 @@ function sign(value) {
   return crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
 }
 
-function makeSessionCookie(sessionId) {
-  const value = `${sessionId}.${sign(sessionId)}`;
+function makeSessionCookie(user) {
+  const payload = Buffer.from(JSON.stringify({ user, createdAt: new Date().toISOString() })).toString('base64url');
+  const value = `${payload}.${sign(payload)}`;
   return `radar_session=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 7}`;
 }
 
@@ -104,10 +105,16 @@ function clearSessionCookie() {
 function getSession(req) {
   const raw = getCookie(req, 'radar_session');
   if (!raw) return null;
-  const [sessionId, signature] = raw.split('.');
-  if (!sessionId || !signature) return null;
-  if (sign(sessionId) !== signature) return null;
-  return sessions.get(sessionId) || null;
+  const [payload, signature] = raw.split('.');
+  if (!payload || !signature) return null;
+  if (sign(payload) !== signature) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (!session?.user) return null;
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 function requireAuth(req, res, next) {
@@ -776,17 +783,13 @@ app.get('/api/config', requireAuth, (req, res) => {
 app.post('/api/login', (req, res) => {
   const { user, username, password } = req.body;
   if ((user || username) === APP_USER && password === APP_PASSWORD) {
-    const sessionId = crypto.randomBytes(24).toString('hex');
-    sessions.set(sessionId, { user: APP_USER, createdAt: new Date().toISOString() });
-    res.setHeader('Set-Cookie', makeSessionCookie(sessionId));
+    res.setHeader('Set-Cookie', makeSessionCookie(APP_USER));
     return res.json({ ok: true });
   }
   return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 });
 
 app.post('/api/logout', (req, res) => {
-  const raw = getCookie(req, 'radar_session');
-  if (raw) sessions.delete(raw.split('.')[0]);
   res.setHeader('Set-Cookie', clearSessionCookie());
   res.json({ ok: true });
 });

@@ -63,11 +63,19 @@ function escapeHtml(value) {
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.detail || 'Erro na requisição');
+  if (!res.ok) {
+    if (res.status === 401 && !path.includes('/api/login') && !path.includes('/api/me')) {
+      clearInterval(state.autoTimer);
+      showLogin();
+      throw new Error('Sessão expirada. Faça login novamente.');
+    }
+    throw new Error(data.error || data.detail || 'Erro na requisição');
+  }
   return data;
 }
 
@@ -465,7 +473,7 @@ async function renderPreviewGrid() {
       body: JSON.stringify({ clientId: client.id, gridSize, radiusKm, centerLat: center.lat, centerLng: center.lng })
     });
   } catch (err) {
-    if (seq === state.previewSeq) $('#map').innerHTML = `<div class="map-message">${escapeHtml(err.message)}</div>`;
+    if (seq === state.previewSeq && !String(err.message).includes('Sessão expirada')) $('#map').innerHTML = `<div class="map-message">${escapeHtml(err.message)}</div>`;
     return;
   }
   if (seq !== state.previewSeq || state.scanMode !== 'new') return;
