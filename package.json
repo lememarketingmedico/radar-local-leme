@@ -4,7 +4,7 @@
   "description": "Radar Local LEME - Grid de posicionamento local para Google Business Profile",
   "main": "server.js",
   "scripts": {
-    "start": "npm install --omit=dev && node server.js",
+    "start": "npm install express@4.19.2 --omit=dev && node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
