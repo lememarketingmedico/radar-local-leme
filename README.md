@@ -1,15 +1,25 @@
-# Radar Local LEME V3.3
+# Radar Local LEME V3.4
 
-Versão V3.3 do Radar Local LEME com melhorias de usabilidade e um relatório redesenhado.
+Versão de correção de segurança dos dados e cadastro de clientes.
 
-## O que mudou nesta versão
+## Correções desta versão
 
-- ícone lateral mais clean para mover o grid;
-- movimento fluido do grid durante o arraste;
-- opção de editar cliente;
-- mapa mais clean no app e no relatório, ocultando estabelecimentos e POIs;
-- relatório 1920 x 1080 totalmente redesenhado, com foco maior no mapa;
-- grid e mapa mantidos sem distorção.
+- Corrige criação e edição de clientes.
+- Remove `data/db.json` do pacote para não sobrescrever dados existentes.
+- Adiciona backup automático do banco em `/app/data/backups` antes de alterações.
+- Mantém relatório, mapa clean, grid arrastável e automações da V3.3.
+
+## Muito importante
+
+Não suba a pasta `data` para o GitHub.
+
+O banco real deve ficar apenas no volume persistente do EasyPanel:
+
+```txt
+/app/data
+```
+
+Se você subir `data/db.json` no GitHub, pode sobrescrever dados em deploys futuros caso o volume não esteja configurado corretamente.
 
 ## Variáveis de ambiente
 
@@ -40,7 +50,7 @@ Use o Dockerfile do projeto.
 
 Porta: `3000`
 
-Volume persistente:
+Volume persistente obrigatório:
 
 ```txt
 /app/data

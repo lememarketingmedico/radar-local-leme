@@ -516,8 +516,7 @@ async function renderPreviewGrid() {
   const bounds = new google.maps.LatLngBounds();
   preview.points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
   bounds.extend({ lat: Number(client.profileLat), lng: Number(client.profileLng) });
-  bounds.extend(handlePosition);
-  state.map.fitBounds(bounds, 90);
+  state.map.fitBounds(bounds, 60);
 }
 
 function renderScanResult(scan, mode = 'result') {
@@ -597,8 +596,9 @@ $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => {
 
 function resetClientForm() {
   const form = $('#clientForm');
+  if (!form) return;
   form.reset();
-  form.id.value = '';
+  form.elements.id.value = '';
   $('#clientFormTitle').textContent = 'Novo cliente';
   $('#clientSubmitBtn').textContent = 'Salvar cliente';
   $('#clientCancelEditBtn').classList.add('hidden');
@@ -609,7 +609,7 @@ function editClient(id) {
   const client = state.clients.find(c => c.id === id);
   if (!client) return;
   const form = $('#clientForm');
-  form.id.value = client.id;
+  form.elements.id.value = client.id;
   form.name.value = client.name || '';
   form.city.value = client.city || '';
   form.specialty.value = client.specialty || '';

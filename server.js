@@ -58,6 +58,22 @@ function readDb() {
 function writeDb(db) {
   ensureDb();
   db.settings = { ...defaultSettings(), ...(db.settings || {}) };
+  // Backup automático antes de cada alteração, para evitar perda de clientes/análises em atualizações futuras.
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const backupDir = path.join(DATA_DIR, 'backups');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      fs.copyFileSync(DB_PATH, path.join(backupDir, `db-${stamp}.json`));
+      const backups = fs.readdirSync(backupDir)
+        .filter(name => name.startsWith('db-') && name.endsWith('.json'))
+        .sort()
+        .reverse();
+      backups.slice(30).forEach(name => fs.unlinkSync(path.join(backupDir, name)));
+    }
+  } catch (error) {
+    console.warn('Não foi possível criar backup automático do banco:', error.message);
+  }
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
 }
 
