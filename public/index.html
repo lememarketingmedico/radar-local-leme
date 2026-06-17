@@ -68,9 +68,10 @@
       <section id="clientsView" class="view hidden">
         <div class="grid-2">
           <div class="panel">
-            <h2>Novo cliente</h2>
+            <h2 id="clientFormTitle">Novo cliente</h2>
             <p class="panel-subtitle">Cadastro resumido. O sistema tenta encontrar a localização pelo Place ID ou endereço.</p>
             <form id="clientForm" class="stack-form">
+              <input type="hidden" name="id" />
               <label>Nome do cliente *</label>
               <input name="name" placeholder="Ex: Dr. Diogo Martins" required />
               <div class="field-row">
@@ -99,7 +100,10 @@
               </details>
               <label>Observações</label>
               <textarea name="notes" rows="3" placeholder="Informações internas"></textarea>
-              <button type="submit">Salvar cliente</button>
+              <div class="button-row">
+                <button type="submit" id="clientSubmitBtn">Salvar cliente</button>
+                <button type="button" class="secondary hidden" id="clientCancelEditBtn">Cancelar edição</button>
+              </div>
             </form>
           </div>
 

@@ -11,6 +11,7 @@ const state = {
   previewLines: [],
   profileMarker: null,
   centerMarker: null,
+  moveHandleMarker: null,
   currentScan: null,
   scanMode: 'new',
   theme: localStorage.getItem('radar-theme') || 'dark',
@@ -147,6 +148,7 @@ function renderClients() {
           <p class="tiny">Perfil: ${client.profileLat ?? '—'}, ${client.profileLng ?? '—'} · Centro: ${client.gridCenterLat ?? '—'}, ${client.gridCenterLng ?? '—'}</p>
         </div>
         <div class="item-actions">
+          <button class="secondary" onclick="editClient('${client.id}')">Editar</button>
           <button class="secondary" onclick="resolveClientLocation('${client.id}')">Resolver</button>
           <button class="secondary danger-mini" onclick="deleteClient('${client.id}')">Excluir</button>
         </div>
@@ -350,8 +352,10 @@ function clearMapObjects() {
   state.previewLines = [];
   if (state.profileMarker) state.profileMarker.setMap(null);
   if (state.centerMarker) state.centerMarker.setMap(null);
+  if (state.moveHandleMarker) state.moveHandleMarker.setMap(null);
   state.profileMarker = null;
   state.centerMarker = null;
+  state.moveHandleMarker = null;
 }
 
 function selectedClient() {
@@ -393,8 +397,8 @@ async function renderPreviewGrid() {
   if (!client || !state.map || state.scanMode !== 'new') return;
   clearMapObjects();
   $('#resultSummary').innerHTML = `<div class="preview-help">
-    <strong>1. Ajuste o centro do grid</strong>
-    <span>Arraste o marcador azul para cobrir melhor a cidade. Os pontos cinza mostram onde as buscas serão simuladas.</span>
+    <strong>1. Mova o grid pelo ícone lateral</strong>
+    <span>Arraste o ícone vermelho ao lado esquerdo do grid. O ponto azul mostra apenas o centro atual.</span>
   </div>
   <div class="preview-help">
     <strong>2. Confira raio e grid</strong>
@@ -426,10 +430,10 @@ async function renderPreviewGrid() {
   state.centerMarker = new google.maps.Marker({
     map: state.map,
     position: center,
-    title: 'Arraste este ponto para ajustar o centro do grid',
+    title: 'Centro atual do grid',
     draggable: true,
-    label: { text: '↕', color: '#ffffff', fontWeight: '900' },
-    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 15, fillColor: '#0ab6d6', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 4 }
+    label: { text: '+', color: '#ffffff', fontWeight: '900' },
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#24539b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
   });
   state.centerMarker.addListener('dragend', async (evt) => {
     setCenterFields(evt.latLng.lat(), evt.latLng.lng());
@@ -456,10 +460,35 @@ async function renderPreviewGrid() {
     state.previewLines.push(new google.maps.Polyline({ map: state.map, path: colPoints, strokeColor: '#24539b', strokeOpacity: 0.55, strokeWeight: 2 }));
   }
 
+  const lats = preview.points.map(p => p.lat);
+  const lngs = preview.points.map(p => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const handlePosition = {
+    lat: (minLat + maxLat) / 2,
+    lng: minLng - (maxLng - minLng) * 0.24
+  };
+  const previousHandle = handlePosition;
+  state.moveHandleMarker = new google.maps.Marker({
+    map: state.map,
+    position: handlePosition,
+    draggable: true,
+    title: 'Arraste este ícone para mover todo o grid',
+    label: { text: '✥', color: '#e11d48', fontWeight: '900', fontSize: '16px' },
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 16, fillColor: '#ffffff', fillOpacity: 1, strokeColor: '#ef4444', strokeWeight: 3 }
+  });
+  state.moveHandleMarker.addListener('dragend', async (evt) => {
+    const dLat = evt.latLng.lat() - previousHandle.lat;
+    const dLng = evt.latLng.lng() - previousHandle.lng;
+    setCenterFields(center.lat + dLat, center.lng + dLng);
+    await renderPreviewGrid();
+  });
+
   const bounds = new google.maps.LatLngBounds();
   preview.points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
   bounds.extend({ lat: Number(client.profileLat), lng: Number(client.profileLng) });
-  state.map.fitBounds(bounds, 70);
+  bounds.extend(handlePosition);
+  state.map.fitBounds(bounds, 90);
 }
 
 function renderScanResult(scan, mode = 'result') {
@@ -494,7 +523,7 @@ async function renderResultMap(scan) {
   });
   const bounds = new google.maps.LatLngBounds();
   scan.points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
-  state.map.fitBounds(bounds, 70);
+  state.map.fitBounds(bounds, 60);
 }
 
 async function openScan(id) {
@@ -537,21 +566,64 @@ $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => {
   }
 }));
 
+function resetClientForm() {
+  const form = $('#clientForm');
+  form.reset();
+  form.id.value = '';
+  $('#clientFormTitle').textContent = 'Novo cliente';
+  $('#clientSubmitBtn').textContent = 'Salvar cliente';
+  $('#clientCancelEditBtn').classList.add('hidden');
+  form.classList.remove('client-editing');
+}
+
+function editClient(id) {
+  const client = state.clients.find(c => c.id === id);
+  if (!client) return;
+  const form = $('#clientForm');
+  form.id.value = client.id;
+  form.name.value = client.name || '';
+  form.city.value = client.city || '';
+  form.specialty.value = client.specialty || '';
+  form.address.value = client.address || '';
+  form.placeId.value = client.placeId || '';
+  form.status.value = client.status || 'active';
+  form.defaultGridSize.value = String(client.defaultGridSize || 5);
+  form.defaultRadiusKm.value = client.defaultRadiusKm || 3;
+  form.profileLat.value = client.profileLat ?? '';
+  form.profileLng.value = client.profileLng ?? '';
+  form.gridCenterLat.value = client.gridCenterLat ?? '';
+  form.gridCenterLng.value = client.gridCenterLng ?? '';
+  form.notes.value = client.notes || '';
+  $('#clientFormTitle').textContent = 'Editar cliente';
+  $('#clientSubmitBtn').textContent = 'Salvar alterações';
+  $('#clientCancelEditBtn').classList.remove('hidden');
+  form.classList.add('client-editing');
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+window.editClient = editClient;
+
+$('#clientCancelEditBtn').addEventListener('click', () => resetClientForm());
+
 $('#clientForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = Object.fromEntries(new FormData(e.currentTarget));
-  const btn = e.currentTarget.querySelector('button[type="submit"]');
+  const btn = $('#clientSubmitBtn');
+  const isEdit = Boolean(form.id);
   btn.disabled = true;
-  btn.textContent = 'Salvando...';
+  btn.textContent = isEdit ? 'Salvando alterações...' : 'Salvando...';
   try {
-    await api('/api/clients', { method: 'POST', body: JSON.stringify(form) });
-    e.currentTarget.reset();
+    if (isEdit) {
+      await api(`/api/clients/${form.id}`, { method: 'PUT', body: JSON.stringify(form) });
+    } else {
+      await api('/api/clients', { method: 'POST', body: JSON.stringify(form) });
+    }
+    resetClientForm();
     await loadAll();
   } catch (err) {
     alert(err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Salvar cliente';
+    btn.textContent = form.id ? 'Salvar alterações' : 'Salvar cliente';
   }
 });
 
