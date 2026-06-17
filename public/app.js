@@ -12,6 +12,7 @@ const state = {
   profileMarker: null,
   centerMarker: null,
   currentScan: null,
+  scanMode: 'new',
   theme: localStorage.getItem('radar-theme') || 'dark',
   googleLoaded: false,
   autoTimer: null
@@ -243,7 +244,7 @@ function renderSettingsForm() {
   form.dataset.filled = 'true';
 }
 
-function setView(viewName) {
+function setView(viewName, options = {}) {
   $$('.view').forEach(v => v.classList.add('hidden'));
   $(`#${viewName}View`).classList.remove('hidden');
   $$('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === viewName));
@@ -258,7 +259,37 @@ function setView(viewName) {
   };
   $('#pageTitle').textContent = titles[viewName][0];
   $('#pageSubtitle').textContent = titles[viewName][1];
-  if (viewName === 'scan') setTimeout(() => initPreviewMap(), 150);
+
+  if (viewName === 'scan') {
+    const mode = options.mode || state.scanMode || 'new';
+    setScanMode(mode);
+    if (mode === 'new') setTimeout(() => initPreviewMap(), 150);
+  } else {
+    state.scanMode = 'new';
+    $('#scanView')?.classList.remove('history-mode', 'result-mode', 'preview-mode');
+  }
+}
+
+function setScanMode(mode) {
+  state.scanMode = mode;
+  const view = $('#scanView');
+  const resultTitle = $('#resultPanelTitle');
+  const hint = $('#resultHint');
+  view.classList.remove('history-mode', 'result-mode', 'preview-mode');
+  view.classList.add(mode === 'new' ? 'preview-mode' : mode === 'history' ? 'history-mode' : 'result-mode');
+
+  if (mode === 'new') {
+    if (resultTitle) resultTitle.textContent = 'Ajuste do grid';
+    if (hint) hint.textContent = 'Arraste o marcador azul para posicionar o grid antes de rodar a análise.';
+    $('#downloadReportBtn').disabled = !state.currentScan;
+    $('#sendReportBtn').disabled = !state.currentScan;
+  }
+  if (mode === 'result') {
+    if (resultTitle) resultTitle.textContent = 'Resultado da análise';
+  }
+  if (mode === 'history') {
+    if (resultTitle) resultTitle.textContent = 'Resultado salvo';
+  }
 }
 
 async function deleteClient(id) {
@@ -318,7 +349,9 @@ function clearMapObjects() {
   state.previewMarkers = [];
   state.previewLines = [];
   if (state.profileMarker) state.profileMarker.setMap(null);
+  if (state.centerMarker) state.centerMarker.setMap(null);
   state.profileMarker = null;
+  state.centerMarker = null;
 }
 
 function selectedClient() {
@@ -357,8 +390,20 @@ async function initPreviewMap() {
 
 async function renderPreviewGrid() {
   const client = selectedClient();
-  if (!client || !state.map) return;
+  if (!client || !state.map || state.scanMode !== 'new') return;
   clearMapObjects();
+  $('#resultSummary').innerHTML = `<div class="preview-help">
+    <strong>1. Ajuste o centro do grid</strong>
+    <span>Arraste o marcador azul para cobrir melhor a cidade. Os pontos cinza mostram onde as buscas serão simuladas.</span>
+  </div>
+  <div class="preview-help">
+    <strong>2. Confira raio e grid</strong>
+    <span>Use o raio livre para evitar que a análise fique fora da área útil da cidade.</span>
+  </div>
+  <div class="preview-help">
+    <strong>3. Rode a análise</strong>
+    <span>Após rodar, a prévia some e ficam apenas os números do resultado.</span>
+  </div>`;
   const center = {
     lat: Number($('#centerLat').value || client.gridCenterLat || client.profileLat),
     lng: Number($('#centerLng').value || client.gridCenterLng || client.profileLng)
@@ -374,16 +419,17 @@ async function renderPreviewGrid() {
   state.profileMarker = new google.maps.Marker({
     map: state.map,
     position: { lat: Number(client.profileLat), lng: Number(client.profileLng) },
-    title: 'Local do perfil',
+    title: 'Local real do perfil do cliente',
     icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#24539b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
   });
 
   state.centerMarker = new google.maps.Marker({
     map: state.map,
     position: center,
-    title: 'Centro do grid. Arraste para ajustar.',
+    title: 'Arraste este ponto para ajustar o centro do grid',
     draggable: true,
-    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#0ab6d6', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
+    label: { text: '↕', color: '#ffffff', fontWeight: '900' },
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 15, fillColor: '#0ab6d6', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 4 }
   });
   state.centerMarker.addListener('dragend', async (evt) => {
     setCenterFields(evt.latLng.lat(), evt.latLng.lng());
@@ -394,22 +440,20 @@ async function renderPreviewGrid() {
     const marker = new google.maps.Marker({
       map: state.map,
       position: { lat: p.lat, lng: p.lng },
-      label: { text: '•', color: '#ffffff', fontWeight: '900' },
-      title: `Ponto ${p.row + 1},${p.col + 1}`,
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#8b98a8', fillOpacity: 0.95, strokeColor: '#ffffff', strokeWeight: 2 }
+      label: { text: `${p.row + 1}.${p.col + 1}`, color: '#ffffff', fontWeight: '900', fontSize: '10px' },
+      title: `Busca simulada ${p.row + 1},${p.col + 1}`,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#8b98a8', fillOpacity: 0.88, strokeColor: '#ffffff', strokeWeight: 2 }
     });
     state.previewMarkers.push(marker);
   });
 
   for (let row = 0; row < gridSize; row++) {
     const rowPoints = preview.points.filter(p => p.row === row).map(p => ({ lat: p.lat, lng: p.lng }));
-    const line = new google.maps.Polyline({ map: state.map, path: rowPoints, strokeColor: '#24539b', strokeOpacity: 0.45, strokeWeight: 2 });
-    state.previewLines.push(line);
+    state.previewLines.push(new google.maps.Polyline({ map: state.map, path: rowPoints, strokeColor: '#24539b', strokeOpacity: 0.55, strokeWeight: 2 }));
   }
   for (let col = 0; col < gridSize; col++) {
     const colPoints = preview.points.filter(p => p.col === col).map(p => ({ lat: p.lat, lng: p.lng }));
-    const line = new google.maps.Polyline({ map: state.map, path: colPoints, strokeColor: '#24539b', strokeOpacity: 0.45, strokeWeight: 2 });
-    state.previewLines.push(line);
+    state.previewLines.push(new google.maps.Polyline({ map: state.map, path: colPoints, strokeColor: '#24539b', strokeOpacity: 0.55, strokeWeight: 2 }));
   }
 
   const bounds = new google.maps.LatLngBounds();
@@ -418,8 +462,9 @@ async function renderPreviewGrid() {
   state.map.fitBounds(bounds, 70);
 }
 
-function renderScanResult(scan) {
+function renderScanResult(scan, mode = 'result') {
   state.currentScan = scan;
+  setScanMode(mode);
   $('#resultHint').textContent = `${scan.clientName} · ${scan.keyword} · ${fmtDate(scan.createdAt)}`;
   $('#resultSummary').innerHTML = `<div class="summary-card"><span>Posição média</span><strong>${scan.summary.averagePosition ?? '—'}</strong></div>
     <div class="summary-card"><span>Top 3</span><strong>${scan.summary.top3Percent}%</strong></div>
@@ -454,8 +499,9 @@ async function renderResultMap(scan) {
 
 async function openScan(id) {
   const scan = await api(`/api/scans/${id}`);
-  setView('scan');
-  setTimeout(() => renderScanResult(scan), 200);
+  state.currentScan = scan;
+  setView('scan', { mode: 'history' });
+  setTimeout(() => renderScanResult(scan, 'history'), 200);
 }
 
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -482,7 +528,14 @@ $('#themeToggle').addEventListener('click', () => {
   applyTheme();
 });
 
-$$('.nav-btn').forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.view)));
+$$('.nav-btn').forEach(btn => btn.addEventListener('click', () => {
+  if (btn.dataset.view === 'scan') {
+    state.currentScan = null;
+    setView('scan', { mode: 'new' });
+  } else {
+    setView(btn.dataset.view);
+  }
+}));
 
 $('#clientForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -563,7 +616,7 @@ $('#scanForm').addEventListener('submit', async (e) => {
     const scan = await api('/api/scans/run', { method: 'POST', body: JSON.stringify(form) });
     status.textContent = 'Análise concluída com sucesso.';
     await loadAll();
-    renderScanResult(scan);
+    renderScanResult(scan, 'result');
   } catch (err) {
     status.textContent = `Erro: ${err.message}`;
   } finally {

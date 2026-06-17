@@ -198,3 +198,36 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
   .grid-2, .grid-scan, .cards-grid, .summary-grid { grid-template-columns: 1fr; }
   .topbar { flex-direction: column; }
 }
+
+/* V3.1: separa claramente ajuste do grid, resultado e histórico */
+.preview-help {
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  min-height: 104px;
+}
+.preview-help strong { display: block; font-size: 16px; margin-bottom: 8px; color: var(--text); }
+.preview-help span { display: block; color: var(--muted); line-height: 1.45; font-weight: 650; }
+#scanView.preview-mode .result-panel { outline: 2px solid color-mix(in srgb, var(--brand-2) 36%, transparent); outline-offset: 3px; }
+#scanView.preview-mode #map { min-height: 680px; }
+#scanView.result-mode .result-panel, #scanView.history-mode .result-panel { grid-column: 1 / -1; }
+#scanView.result-mode .scan-config-panel, #scanView.history-mode .scan-config-panel { display: none; }
+#scanView.result-mode #map, #scanView.history-mode #map { min-height: 700px; }
+#scanView.history-mode .result-header::after {
+  content: 'Histórico: somente leitura';
+  display: inline-flex;
+  align-items: center;
+  align-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+#scanView.history-mode .result-header { align-items: flex-start; }
+@media (max-width: 1100px) {
+  #scanView.result-mode .result-panel, #scanView.history-mode .result-panel { grid-column: auto; }
+}
