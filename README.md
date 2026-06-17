@@ -1,40 +1,20 @@
-# Radar Local LEME V4.2
+# Radar Local LEME V4.3
 
-Versão com as funções pedidas até a V4.2:
+Ajustes desta versão:
 
-- V4.0: ajuste do relatório para o mapa focar no grid completo, com margem visual melhor.
-- V4.1: tela **Análise rápida** para prospectar sem cadastrar cliente.
-- V4.2: ranking de concorrentes com botão **Gerar grid** para analisar o concorrente com a mesma palavra-chave, grid, raio e centro.
+- relatório com recorte dinâmico do mapa para o grid ficar maior, sem cortar pontos;
+- Análise rápida agora pode ser ajustada na tela de preview do grid antes de rodar;
+- mantém ranking de concorrentes e botão para gerar grid do concorrente;
+- mantém modo cliente, histórico, n8n e automação.
 
-## Importante
+## Atualização
 
-Não suba a pasta `data` para o GitHub.
-Mantenha o volume persistente no EasyPanel em:
+Suba os arquivos da pasta para a raiz do GitHub. Não suba pasta `data`.
+
+No EasyPanel, mantenha o volume:
 
 ```txt
 /app/data
 ```
 
-## Variáveis de ambiente
-
-```env
-APP_USER=leme
-APP_PASSWORD=sua-senha
-SESSION_SECRET=um-texto-grande-fixo
-GOOGLE_MAPS_FRONTEND_KEY=sua-chave-frontend
-GOOGLE_MAPS_BACKEND_KEY=sua-chave-backend
-N8N_WEBHOOK_URL=https://n8n.adati.app.br/webhook/radar-local-leme
-AUTOMATION_TOKEN=crie-um-token-seguro
-PORT=3000
-```
-
-## APIs necessárias
-
-- Maps JavaScript API
-- Maps Static API
-- Places API (New)
-- Geocoding API
-
-## Observação de custo
-
-A análise normal usa IDs Only. O ranking de concorrentes e a análise rápida usam nomes/localização de perfis e podem acionar SKUs pagos, então use essas funções de forma estratégica.
+Depois faça Forçar reconstrução.

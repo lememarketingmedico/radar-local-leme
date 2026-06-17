@@ -19,7 +19,9 @@ const state = {
   scanMode: 'new',
   theme: localStorage.getItem('radar-theme') || 'dark',
   googleLoaded: false,
-  autoTimer: null
+  autoTimer: null,
+  quickTarget: null,
+  quickKeyword: ''
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -216,12 +218,16 @@ function renderSelects() {
   const activeClients = state.clients.filter(c => c.status !== 'inactive');
   const keywordClientPrevious = $('#keywordClientSelect')?.value || '';
   const scanClientPrevious = $('#scanClientSelect')?.value || '';
-  const clientOptions = activeClients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-  $('#keywordClientSelect').innerHTML = clientOptions || '<option value="">Cadastre um cliente</option>';
+  let clientOptions = activeClients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  if (state.quickTarget) {
+    clientOptions = `<option value="__prospect__">Análise rápida: ${escapeHtml(state.quickTarget.name || 'Prospect')}</option>` + clientOptions;
+  }
+  $('#keywordClientSelect').innerHTML = activeClients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('') || '<option value="">Cadastre um cliente</option>';
   $('#scanClientSelect').innerHTML = clientOptions || '<option value="">Cadastre um cliente</option>';
 
   if (activeClients.some(c => c.id === keywordClientPrevious)) $('#keywordClientSelect').value = keywordClientPrevious;
-  if (activeClients.some(c => c.id === scanClientPrevious)) $('#scanClientSelect').value = scanClientPrevious;
+  if (scanClientPrevious === '__prospect__' && state.quickTarget) $('#scanClientSelect').value = '__prospect__';
+  else if (activeClients.some(c => c.id === scanClientPrevious)) $('#scanClientSelect').value = scanClientPrevious;
 
   renderKeywordSelect();
 }
@@ -230,6 +236,11 @@ function renderKeywordSelect() {
   const select = $('#scanKeywordSelect');
   const previous = select?.value || '';
   const clientId = $('#scanClientSelect').value;
+  if (clientId === '__prospect__' && state.quickTarget) {
+    const term = state.quickKeyword || $('#prospectRunForm')?.keyword?.value || 'palavra-chave';
+    select.innerHTML = `<option value="__quick_keyword__">${escapeHtml(term)}</option>`;
+    return;
+  }
   const keywords = state.keywords.filter(k => k.clientId === clientId && k.status !== 'inactive');
   select.innerHTML = keywords.map(k => `<option value="${k.id}">${escapeHtml(k.term)}</option>`).join('') || '<option value="">Cadastre uma palavra</option>';
   if (keywords.some(k => k.id === previous)) select.value = previous;
@@ -405,6 +416,7 @@ function clearMapObjects() {
 }
 
 function selectedClient() {
+  if ($('#scanClientSelect').value === '__prospect__') return state.quickTarget;
   return state.clients.find(c => c.id === $('#scanClientSelect').value);
 }
 
@@ -670,6 +682,38 @@ function selectProspect(place) {
     form.keyword.value = [specialty, city].filter(Boolean).join(' ').trim();
   }
 }
+
+async function prepareProspectPreview() {
+  const form = $('#prospectRunForm');
+  if (!form?.placeId?.value) return alert('Selecione um perfil primeiro.');
+  const city = $('#prospectSearchForm')?.city?.value || '';
+  const specialty = $('#prospectSearchForm')?.specialty?.value || '';
+  state.quickKeyword = form.keyword.value || [specialty, city].filter(Boolean).join(' ').trim();
+  state.quickTarget = {
+    id: '__prospect__',
+    name: form.name.value || 'Prospect',
+    city,
+    specialty,
+    address: form.address.value || '',
+    placeId: form.placeId.value,
+    profileLat: Number(form.profileLat.value),
+    profileLng: Number(form.profileLng.value),
+    gridCenterLat: Number(form.profileLat.value),
+    gridCenterLng: Number(form.profileLng.value),
+    defaultGridSize: Number(form.gridSize.value || 5),
+    defaultRadiusKm: Number(form.radiusKm.value || 3),
+    status: 'active'
+  };
+  renderSelects();
+  $('#scanClientSelect').value = '__prospect__';
+  $('#scanGridSize').value = String(state.quickTarget.defaultGridSize || 5);
+  $('#scanRadiusKm').value = state.quickTarget.defaultRadiusKm || 3;
+  setCenterFields(state.quickTarget.profileLat, state.quickTarget.profileLng);
+  renderKeywordSelect();
+  setView('scan', { mode: 'new' });
+  setTimeout(() => initPreviewMap(), 150);
+}
+window.prepareProspectPreview = prepareProspectPreview;
 window.selectProspect = selectProspect;
 
 async function runCompetitorGrid(scanId, placeId, name) {
@@ -713,6 +757,10 @@ $('#prospectSearchForm')?.addEventListener('submit', async (e) => {
   } catch (err) {
     status.textContent = `Erro: ${err.message}`;
   }
+});
+
+$('#prospectAdjustBtn')?.addEventListener('click', async () => {
+  await prepareProspectPreview();
 });
 
 $('#prospectRunForm')?.addEventListener('submit', async (e) => {
@@ -867,6 +915,12 @@ $('#centerOnProfileBtn').addEventListener('click', async () => {
 $('#saveCenterBtn').addEventListener('click', async () => {
   const client = selectedClient();
   if (!client) return;
+  if ($('#scanClientSelect').value === '__prospect__' && state.quickTarget) {
+    state.quickTarget.gridCenterLat = Number($('#centerLat').value);
+    state.quickTarget.gridCenterLng = Number($('#centerLng').value);
+    alert('Centro ajustado para esta análise rápida.');
+    return;
+  }
   try {
     await api(`/api/clients/${client.id}/save-grid-center`, {
       method: 'POST',
@@ -890,7 +944,27 @@ $('#scanForm').addEventListener('submit', async (e) => {
   const btn = e.currentTarget.querySelector('button[type="submit"]');
   btn.disabled = true;
   try {
-    const scan = await api('/api/scans/run', { method: 'POST', body: JSON.stringify(form) });
+    let scan;
+    if (form.clientId === '__prospect__' && state.quickTarget) {
+      const body = {
+        placeId: state.quickTarget.placeId,
+        name: state.quickTarget.name,
+        address: state.quickTarget.address,
+        city: state.quickTarget.city,
+        specialty: state.quickTarget.specialty,
+        profileLat: state.quickTarget.profileLat,
+        profileLng: state.quickTarget.profileLng,
+        keyword: state.quickKeyword || $('#prospectRunForm')?.keyword?.value || $('#scanKeywordSelect option:checked')?.textContent || '',
+        gridSize: form.gridSize,
+        radiusKm: form.radiusKm,
+        centerLat: form.centerLat,
+        centerLng: form.centerLng,
+        includeCompetitors: form.includeCompetitors
+      };
+      scan = await api('/api/scans/run-prospect', { method: 'POST', body: JSON.stringify(body) });
+    } else {
+      scan = await api('/api/scans/run', { method: 'POST', body: JSON.stringify(form) });
+    }
     status.textContent = 'Análise concluída com sucesso.';
     await loadAll();
     renderScanResult(scan, 'result');

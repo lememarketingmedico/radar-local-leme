@@ -384,7 +384,6 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   url.searchParams.set('center', `${center.lat},${center.lng}`);
   url.searchParams.set('zoom', String(zoom));
-  // Google Static Maps permite tamanho 640x640 com scale=2 para alta definição.
   url.searchParams.set('size', `${logicalW}x${logicalH}`);
   url.searchParams.set('scale', '2');
   url.searchParams.set('maptype', 'roadmap');
@@ -399,6 +398,7 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
     'feature:poi.park|element:labels|visibility:off'
   ];
   styles.forEach(style => url.searchParams.append('style', style));
+
   const response = await fetch(url.toString());
   const contentType = response.headers.get('content-type') || '';
   const arrayBuffer = await response.arrayBuffer();
@@ -408,13 +408,63 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
     const detail = buffer.toString('utf-8').slice(0, 220);
     throw new Error(`Maps Static API não retornou mapa real. Verifique se a API está ativada e permitida na chave Backend. ${detail}`);
   }
-
   if (buffer.length < 5000) {
     throw new Error('Maps Static API retornou imagem pequena demais. Verifique faturamento, API e restrições da chave Backend.');
   }
 
-  const base64 = buffer.toString('base64');
-  return { dataUri: `data:image/png;base64,${base64}`, zoom, logicalW, logicalH };
+  // A Static Maps API trabalha com zoom inteiro. Para deixar o grid grande sem cortar,
+  // baixamos o mapa em um zoom seguro e recortamos ao redor dos pontos do grid.
+  const coords = scan.points.map(p => pointToPixel(p, center, zoom, logicalW, logicalH));
+  const minX = Math.min(...coords.map(p => p.x));
+  const maxX = Math.max(...coords.map(p => p.x));
+  const minY = Math.min(...coords.map(p => p.y));
+  const maxY = Math.max(...coords.map(p => p.y));
+  const bboxW = Math.max(1, maxX - minX);
+  const bboxH = Math.max(1, maxY - minY);
+  const aspect = logicalW / logicalH;
+  const desiredMargin = 34;
+
+  let cropW = bboxW + desiredMargin * 2;
+  let cropH = bboxH + desiredMargin * 2;
+  if (cropW / cropH > aspect) cropH = cropW / aspect;
+  else cropW = cropH * aspect;
+
+  // Não deixe o recorte ficar maior que o mapa original, mas mantenha o grid perto do tamanho desejado.
+  cropW = Math.min(logicalW, Math.max(cropW, logicalW * 0.48));
+  cropH = Math.min(logicalH, Math.max(cropH, logicalH * 0.48));
+  if (cropW / cropH > aspect) cropW = cropH * aspect;
+  else cropH = cropW / aspect;
+
+  const bboxCenterX = (minX + maxX) / 2;
+  const bboxCenterY = (minY + maxY) / 2;
+  let cropX = bboxCenterX - cropW / 2;
+  let cropY = bboxCenterY - cropH / 2;
+  cropX = Math.max(0, Math.min(logicalW - cropW, cropX));
+  cropY = Math.max(0, Math.min(logicalH - cropH, cropY));
+
+  const scale = 2;
+  const crop = {
+    left: Math.round(cropX * scale),
+    top: Math.round(cropY * scale),
+    width: Math.max(1, Math.round(cropW * scale)),
+    height: Math.max(1, Math.round(cropH * scale))
+  };
+  const resized = await sharp(buffer)
+    .extract(crop)
+    .resize(logicalW * scale, logicalH * scale, { fit: 'fill' })
+    .png()
+    .toBuffer();
+
+  return {
+    dataUri: `data:image/png;base64,${resized.toString('base64')}`,
+    zoom,
+    logicalW,
+    logicalH,
+    cropX,
+    cropY,
+    cropW,
+    cropH
+  };
 }
 
 function truncateText(value, max = 90) {
@@ -473,7 +523,14 @@ async function buildReportPng(scan) {
   const colors = { green: '#0fb99a', yellow: '#f3c24c', red: '#ef5b7c', gray: '#93a1b2' };
   const pointPixel = (point) => {
     const px = pointToPixel(point, center, zoom, logicalW, logicalH);
-    return { x: mapX + px.x * sx, y: mapY + px.y * sy };
+    const cropX = staticMap.cropX ?? 0;
+    const cropY = staticMap.cropY ?? 0;
+    const cropW = staticMap.cropW ?? logicalW;
+    const cropH = staticMap.cropH ?? logicalH;
+    return {
+      x: mapX + ((px.x - cropX) / cropW) * mapW,
+      y: mapY + ((px.y - cropY) / cropH) * mapH
+    };
   };
 
   function wrapLines(value, maxChars, maxLines = 2) {
