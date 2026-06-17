@@ -1,15 +1,13 @@
-# Radar Local LEME V3.5
+# Radar Local LEME V3.6
 
-Correções da V3.5:
+Correções da V3.6:
 
-- corrige o mapa da tela de Nova análise;
-- restaura a definição do ícone e do estilo clean do mapa;
-- melhora o relatório para evitar cortes;
-- mantém apenas nome do cliente, especialidade, cidade, palavra-chave e posição média como destaque;
-- recoloca o logo da LEME no cabeçalho azul;
-- posiciona a legenda fora do mapa para não atrapalhar a leitura.
+- preserva o cliente e a palavra selecionados ao atualizar automaticamente;
+- evita renderizações simultâneas que criavam dois ícones de arraste;
+- melhora a fluidez do arraste do grid;
+- dá mais zoom no grid no relatório;
+- corrige cortes de texto com quebra controlada;
+- exibe o logo da LEME no cabeçalho azul com tamanho fixo;
+- mantém no relatório apenas cliente, especialidade, cidade, palavra-chave e posição média.
 
-## Importante
-
-Continue usando volume persistente em `/app/data`.
-Não suba a pasta `data` para o GitHub.
+Não suba pasta `data`. Use volume persistente em `/app/data`.

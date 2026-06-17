@@ -334,7 +334,7 @@ function pointToPixel(point, center, zoom, width, height) {
 function chooseZoom(points, center, width, height) {
   for (let zoom = 18; zoom >= 4; zoom--) {
     const coords = points.map(p => pointToPixel(p, center, zoom, width, height));
-    const margin = 28;
+    const margin = 6;
     const fits = coords.every(p => p.x >= margin && p.x <= width - margin && p.y >= margin && p.y <= height - margin);
     if (fits) return zoom;
   }
@@ -346,7 +346,8 @@ async function getStaticMapDataUri(scan, logicalW, logicalH) {
     throw new Error('GOOGLE_MAPS_BACKEND_KEY não configurada.');
   }
   const center = scan.center;
-  const zoom = chooseZoom(scan.points, center, logicalW, logicalH);
+  const baseZoom = chooseZoom(scan.points, center, logicalW, logicalH);
+  const zoom = Math.min(18, baseZoom + 1);
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   url.searchParams.set('center', `${center.lat},${center.lng}`);
   url.searchParams.set('zoom', String(zoom));
@@ -418,15 +419,15 @@ async function buildReportPng(scan) {
   const headerW = W - 64;
   const headerH = 124;
   const leftX = 40;
-  const leftY = 182;
-  const leftW = 430;
-  const mapX = 500;
-  const mapY = 182;
-  const mapW = 1380;
-  const mapH = 776;
-  const legendY = 984;
+  const leftY = 178;
+  const leftW = 455;
+  const mapX = 535;
+  const mapY = 178;
+  const mapW = 1345;
+  const mapH = 760;
+  const legendY = 980;
   const logicalW = 640;
-  const logicalH = 360;
+  const logicalH = 362;
   const font = reportFont();
   const logoWhite = readAssetBase64('logo-horizontal-white.png');
 
@@ -441,6 +442,35 @@ async function buildReportPng(scan) {
     const px = pointToPixel(point, center, zoom, logicalW, logicalH);
     return { x: mapX + px.x * sx, y: mapY + px.y * sy };
   };
+
+  function wrapLines(value, maxChars, maxLines = 2) {
+    const words = String(value || '—').trim().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (next.length <= maxChars) {
+        line = next;
+      } else {
+        if (line) lines.push(line);
+        line = word.length > maxChars ? word.slice(0, maxChars - 1) + '…' : word;
+      }
+      if (lines.length >= maxLines) break;
+    }
+    if (lines.length < maxLines && line) lines.push(line);
+    if (!lines.length) lines.push('—');
+    if (lines.length > maxLines) lines.length = maxLines;
+    const last = lines[lines.length - 1];
+    const original = String(value || '');
+    if (original.length > lines.join(' ').length && !last.endsWith('…')) {
+      lines[lines.length - 1] = last.length > maxChars - 1 ? last.slice(0, maxChars - 1) + '…' : last + '…';
+    }
+    return lines;
+  }
+
+  function textLines(lines, x, y, size, weight, fill, lineHeight = Math.round(size * 1.18)) {
+    return lines.map((line, i) => `<text x="${x}" y="${y + i * lineHeight}" fill="${fill}" font-size="${size}" font-weight="${weight}" font-family="${font}">${escapeXml(line)}</text>`).join('');
+  }
 
   const lineEls = [];
   for (let row = 0; row < scan.gridSize; row++) {
@@ -468,28 +498,30 @@ async function buildReportPng(scan) {
     const { x, y } = pointPixel(point);
     const color = colors[point.color] || colors.gray;
     const label = point.position ? String(point.position) : '—';
-    const fontSize = label.length >= 3 ? 18 : label.length === 2 ? 22 : 26;
+    const fontSize = label.length >= 3 ? 17 : label.length === 2 ? 21 : 25;
     return `<g>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="24" fill="#ffffff" fill-opacity="0.96"/>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="20" fill="${color}" stroke="#ffffff" stroke-width="4"/>
-      <text x="${x.toFixed(1)}" y="${(y + 9).toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="900" fill="#102033" font-family="${font}">${escapeXml(label)}</text>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="23" fill="#ffffff" fill-opacity="0.97"/>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="19" fill="${color}" stroke="#ffffff" stroke-width="4"/>
+      <text x="${x.toFixed(1)}" y="${(y + 8).toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="900" fill="#102033" font-family="${font}">${escapeXml(label)}</text>
     </g>`;
   }).join('');
 
   const logo = logoWhite
-    ? `<image href="data:image/png;base64,${logoWhite}" x="64" y="55" width="240" preserveAspectRatio="xMinYMid meet"/>`
-    : `<text x="64" y="100" fill="#fff" font-size="42" font-weight="900" font-family="${font}">LEME</text>`;
+    ? `<image href="data:image/png;base64,${logoWhite}" x="64" y="70" width="260" height="34" preserveAspectRatio="xMinYMid meet"/>`
+    : `<text x="64" y="96" fill="#fff" font-size="42" font-weight="900" font-family="${font}">LEME</text>`;
 
   const date = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(scan.createdAt));
   const reportTitle = truncateText(settings.reportTitle || 'Relatório de Desempenho Local', 42);
-  const clientName = truncateText(scan.clientName || '', 42);
-  const specialty = truncateText(scan.clientSpecialty || scan.clientSnapshot?.specialty || '', 32);
-  const city = truncateText(scan.clientCity || scan.clientSnapshot?.city || '', 30);
-  const keyword = truncateText(scan.keyword || '', 42);
-  const positionNow = scan.summary.averagePosition ?? '—';
-  const positionText = String(positionNow);
-  const nameSize = labelFontSize(clientName, 50);
-  const keywordSize = labelFontSize(keyword, 30);
+  const clientName = scan.clientName || '';
+  const specialty = scan.clientSpecialty || scan.clientSnapshot?.specialty || '';
+  const city = scan.clientCity || scan.clientSnapshot?.city || '';
+  const keyword = scan.keyword || '';
+  const positionText = String(scan.summary.averagePosition ?? '—');
+
+  const clientNameSvg = textLines(wrapLines(clientName, 17, 2), leftX + 26, leftY + 52, 42, 900, '#162239', 48);
+  const specialtySvg = textLines(wrapLines(specialty || '—', 22, 1), leftX + 26, leftY + 178, 28, 800, '#24344c');
+  const citySvg = textLines(wrapLines(city || '—', 22, 1), leftX + 26, leftY + 274, 28, 800, '#24344c');
+  const keywordSvg = textLines(wrapLines(keyword || '—', 24, 2), leftX + 26, leftY + 372, 27, 800, '#24344c', 33);
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <defs>
@@ -506,26 +538,20 @@ async function buildReportPng(scan) {
     <text x="1820" y="116" text-anchor="end" fill="#d7e6fb" font-size="18" font-family="${font}">${escapeXml(date)}</text>
 
     <rect x="${leftX}" y="${leftY}" width="${leftW}" height="${mapH}" rx="28" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
-    <text x="${leftX + 26}" y="${leftY + 56}" fill="#162239" font-size="${nameSize}" font-weight="900" font-family="${font}">${escapeXml(clientName)}</text>
+    ${clientNameSvg}
 
-    <text x="${leftX + 26}" y="${leftY + 110}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Especialidade</text>
-    <text x="${leftX + 26}" y="${leftY + 142}" fill="#24344c" font-size="30" font-weight="800" font-family="${font}">${escapeXml(specialty || '—')}</text>
+    <text x="${leftX + 26}" y="${leftY + 136}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Especialidade</text>
+    ${specialtySvg}
 
-    <text x="${leftX + 26}" y="${leftY + 192}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Cidade</text>
-    <text x="${leftX + 26}" y="${leftY + 224}" fill="#24344c" font-size="30" font-weight="800" font-family="${font}">${escapeXml(city || '—')}</text>
+    <text x="${leftX + 26}" y="${leftY + 232}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Cidade</text>
+    ${citySvg}
 
-    <text x="${leftX + 26}" y="${leftY + 274}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Palavra-chave</text>
-    <text x="${leftX + 26}" y="${leftY + 308}" fill="#24344c" font-size="${keywordSize}" font-weight="800" font-family="${font}">${escapeXml(keyword || '—')}</text>
+    <text x="${leftX + 26}" y="${leftY + 330}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Palavra-chave</text>
+    ${keywordSvg}
 
-    <rect x="${leftX + 26}" y="${leftY + 358}" width="${leftW - 52}" height="210" rx="24" fill="#eff5fb" stroke="#d8e4f1" stroke-width="2"/>
-    <text x="${leftX + 50}" y="${leftY + 410}" fill="#6b7b90" font-size="22" font-weight="800" font-family="${font}">Posição média</text>
-    <text x="${leftX + 50}" y="${leftY + 508}" fill="#1b4383" font-size="96" font-weight="900" font-family="${font}">${escapeXml(positionText)}</text>
-    <text x="${leftX + 50}" y="${leftY + 548}" fill="#6b7b90" font-size="20" font-family="${font}">Quanto menor o número, melhor o posicionamento.</text>
-
-    <text x="${leftX + 26}" y="${leftY + 626}" fill="#6b7b90" font-size="17" font-weight="700" font-family="${font}">Dados da análise</text>
-    <text x="${leftX + 26}" y="${leftY + 660}" fill="#24344c" font-size="26" font-weight="800" font-family="${font}">Grid ${scan.gridSize}x${scan.gridSize}</text>
-    <text x="${leftX + 26}" y="${leftY + 696}" fill="#24344c" font-size="26" font-weight="800" font-family="${font}">Raio ${scan.radiusKm} km</text>
-    <text x="${leftX + 26}" y="${leftY + 732}" fill="#24344c" font-size="26" font-weight="800" font-family="${font}">Top 10 em ${scan.summary.top10Percent}% dos pontos</text>
+    <rect x="${leftX + 26}" y="${leftY + 465}" width="${leftW - 52}" height="214" rx="24" fill="#eff5fb" stroke="#d8e4f1" stroke-width="2"/>
+    <text x="${leftX + 52}" y="${leftY + 523}" fill="#6b7b90" font-size="22" font-weight="800" font-family="${font}">Posição média</text>
+    <text x="${leftX + 52}" y="${leftY + 626}" fill="#1b4383" font-size="98" font-weight="900" font-family="${font}">${escapeXml(positionText)}</text>
 
     <rect x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" rx="28" fill="#ffffff" stroke="#d8e4f1" stroke-width="2"/>
     <image href="${staticMap.dataUri}" x="${mapX}" y="${mapY}" width="${mapW}" height="${mapH}" preserveAspectRatio="none" clip-path="url(#mapClip)"/>

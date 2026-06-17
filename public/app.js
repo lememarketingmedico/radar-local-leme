@@ -14,6 +14,7 @@ const state = {
   moveHandleMarker: null,
   previewData: null,
   dragState: null,
+  previewSeq: 0,
   currentScan: null,
   scanMode: 'new',
   theme: localStorage.getItem('radar-theme') || 'dark',
@@ -205,16 +206,25 @@ function renderKeywords() {
 
 function renderSelects() {
   const activeClients = state.clients.filter(c => c.status !== 'inactive');
+  const keywordClientPrevious = $('#keywordClientSelect')?.value || '';
+  const scanClientPrevious = $('#scanClientSelect')?.value || '';
   const clientOptions = activeClients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   $('#keywordClientSelect').innerHTML = clientOptions || '<option value="">Cadastre um cliente</option>';
   $('#scanClientSelect').innerHTML = clientOptions || '<option value="">Cadastre um cliente</option>';
+
+  if (activeClients.some(c => c.id === keywordClientPrevious)) $('#keywordClientSelect').value = keywordClientPrevious;
+  if (activeClients.some(c => c.id === scanClientPrevious)) $('#scanClientSelect').value = scanClientPrevious;
+
   renderKeywordSelect();
 }
 
 function renderKeywordSelect() {
+  const select = $('#scanKeywordSelect');
+  const previous = select?.value || '';
   const clientId = $('#scanClientSelect').value;
   const keywords = state.keywords.filter(k => k.clientId === clientId && k.status !== 'inactive');
-  $('#scanKeywordSelect').innerHTML = keywords.map(k => `<option value="${k.id}">${escapeHtml(k.term)}</option>`).join('') || '<option value="">Cadastre uma palavra</option>';
+  select.innerHTML = keywords.map(k => `<option value="${k.id}">${escapeHtml(k.term)}</option>`).join('') || '<option value="">Cadastre uma palavra</option>';
+  if (keywords.some(k => k.id === previous)) select.value = previous;
 }
 
 function scanItem(scan) {
@@ -306,7 +316,7 @@ function setScanMode(mode) {
 
   if (mode === 'new') {
     if (resultTitle) resultTitle.textContent = 'Ajuste do grid';
-    if (hint) hint.textContent = 'Arraste o ícone cinza ao lado do grid para ajustar a posição antes de rodar a análise.';
+    if (hint) hint.textContent = 'Arraste o ícone cinza ao lado esquerdo do grid. O grid acompanha o movimento.';
     $('#downloadReportBtn').disabled = !state.currentScan;
     $('#sendReportBtn').disabled = !state.currentScan;
   }
@@ -417,25 +427,28 @@ async function initPreviewMap() {
     state.map.setZoom(13);
     state.map.setOptions({ styles: CLEAN_MAP_STYLES });
   }
+  setTimeout(() => state.map && google.maps.event.trigger(state.map, 'resize'), 80);
   await renderPreviewGrid();
 }
 
 async function renderPreviewGrid() {
   const client = selectedClient();
   if (!client || !state.map || state.scanMode !== 'new') return;
-  clearMapObjects();
+  const seq = ++state.previewSeq;
+
   $('#resultSummary').innerHTML = `<div class="preview-help">
     <strong>1. Mova o grid pelo ícone lateral</strong>
-    <span>Arraste o ícone cinza ao lado esquerdo do grid. Durante o arraste, o grid se move junto para facilitar o ajuste.</span>
+    <span>Arraste o ícone cinza ao lado esquerdo. O grid acompanha o movimento em tempo real.</span>
   </div>
   <div class="preview-help">
     <strong>2. Confira raio e grid</strong>
-    <span>Use o raio livre para evitar que a análise fique fora da área útil da cidade.</span>
+    <span>Use o raio livre para cobrir melhor a cidade sem desperdiçar pontos fora da área útil.</span>
   </div>
   <div class="preview-help">
     <strong>3. Rode a análise</strong>
-    <span>Após rodar, a prévia some e ficam apenas os números do resultado.</span>
+    <span>Depois de rodar, a prévia desaparece e ficam apenas os números finais.</span>
   </div>`;
+
   const center = {
     lat: Number($('#centerLat').value || client.gridCenterLat || client.profileLat),
     lng: Number($('#centerLng').value || client.gridCenterLng || client.profileLng)
@@ -443,10 +456,20 @@ async function renderPreviewGrid() {
   const gridSize = Number($('#scanGridSize').value || client.defaultGridSize || 5);
   const radiusKm = Number($('#scanRadiusKm').value || client.defaultRadiusKm || 3);
   setCenterFields(center.lat, center.lng);
-  const preview = await api('/api/grid/preview', {
-    method: 'POST',
-    body: JSON.stringify({ clientId: client.id, gridSize, radiusKm, centerLat: center.lat, centerLng: center.lng })
-  });
+
+  let preview;
+  try {
+    preview = await api('/api/grid/preview', {
+      method: 'POST',
+      body: JSON.stringify({ clientId: client.id, gridSize, radiusKm, centerLat: center.lat, centerLng: center.lng })
+    });
+  } catch (err) {
+    if (seq === state.previewSeq) $('#map').innerHTML = `<div class="map-message">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  if (seq !== state.previewSeq || state.scanMode !== 'new') return;
+
+  clearMapObjects();
 
   state.profileMarker = new google.maps.Marker({
     map: state.map,
@@ -461,15 +484,16 @@ async function renderPreviewGrid() {
     title: 'Centro atual do grid',
     draggable: false,
     label: { text: '+', color: '#ffffff', fontWeight: '900' },
-    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#24539b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#24539b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
   });
+
   preview.points.forEach(p => {
     const marker = new google.maps.Marker({
       map: state.map,
       position: { lat: p.lat, lng: p.lng },
       label: { text: `${p.row + 1}.${p.col + 1}`, color: '#ffffff', fontWeight: '900', fontSize: '10px' },
       title: `Busca simulada ${p.row + 1},${p.col + 1}`,
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#8b98a8', fillOpacity: 0.88, strokeColor: '#ffffff', strokeWeight: 2 }
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#8b98a8', fillOpacity: 0.86, strokeColor: '#ffffff', strokeWeight: 2 }
     });
     state.previewMarkers.push(marker);
   });
@@ -489,14 +513,14 @@ async function renderPreviewGrid() {
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
   const handlePosition = {
     lat: (minLat + maxLat) / 2,
-    lng: minLng - (maxLng - minLng) * 0.24
+    lng: minLng - (maxLng - minLng) * 0.22
   };
-  state.previewData = { preview, center, handlePosition };
+
   state.moveHandleMarker = new google.maps.Marker({
     map: state.map,
     position: handlePosition,
     draggable: true,
-    title: 'Arraste este ícone para mover todo o grid',
+    title: 'Arraste para mover todo o grid',
     icon: moveHandleIcon()
   });
   state.moveHandleMarker.addListener('dragstart', () => {
@@ -511,19 +535,18 @@ async function renderPreviewGrid() {
     const dLat = evt.latLng.lat() - state.dragState.handleStart.lat;
     const dLng = evt.latLng.lng() - state.dragState.handleStart.lng;
     const movedCenter = { lat: state.dragState.centerStart.lat + dLat, lng: state.dragState.centerStart.lng + dLng };
-    state.centerMarker.setPosition(movedCenter);
+    state.centerMarker?.setPosition(movedCenter);
     setCenterFields(movedCenter.lat, movedCenter.lng);
     state.dragState.pointsStart.forEach((basePoint, idx) => {
-      const moved = { lat: basePoint.lat + dLat, lng: basePoint.lng + dLng };
-      state.previewMarkers[idx].setPosition(moved);
+      state.previewMarkers[idx]?.setPosition({ lat: basePoint.lat + dLat, lng: basePoint.lng + dLng });
     });
     for (let row = 0; row < gridSize; row++) {
       const rowPath = state.dragState.pointsStart.filter(p => p.row === row).map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
-      state.previewLines[row].setPath(rowPath);
+      state.previewLines[row]?.setPath(rowPath);
     }
     for (let col = 0; col < gridSize; col++) {
       const colPath = state.dragState.pointsStart.filter(p => p.col === col).map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
-      state.previewLines[gridSize + col].setPath(colPath);
+      state.previewLines[gridSize + col]?.setPath(colPath);
     }
   });
   state.moveHandleMarker.addListener('dragend', async (evt) => {
@@ -538,7 +561,11 @@ async function renderPreviewGrid() {
   const bounds = new google.maps.LatLngBounds();
   preview.points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
   bounds.extend({ lat: Number(client.profileLat), lng: Number(client.profileLng) });
-  state.map.fitBounds(bounds, 60);
+  bounds.extend(handlePosition);
+  state.map.fitBounds(bounds, 70);
+  setTimeout(() => {
+    if (state.map && seq === state.previewSeq) google.maps.event.trigger(state.map, 'resize');
+  }, 80);
 }
 
 function renderScanResult(scan, mode = 'result') {
