@@ -604,6 +604,113 @@ async function buildReportPng(scan) {
   return await sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+
+async function searchProspectPlaces({ query, city, specialty }) {
+  if (!GOOGLE_MAPS_BACKEND_KEY) throw new Error('GOOGLE_MAPS_BACKEND_KEY não configurada no servidor.');
+  const textQuery = [query, specialty, city, 'Brasil'].filter(Boolean).join(' ').trim();
+  if (!textQuery) throw new Error('Digite um nome, cidade ou especialidade para buscar.');
+  const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_MAPS_BACKEND_KEY,
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location'
+    },
+    body: JSON.stringify({ textQuery, languageCode: 'pt-BR', regionCode: 'BR', pageSize: 10 })
+  });
+  const json = await response.json();
+  if (!response.ok) throw new Error(json?.error?.message || 'Erro ao buscar perfis no Google.');
+  return (json.places || []).map(place => ({
+    placeId: cleanPlaceId(place.id),
+    name: place.displayName?.text || 'Perfil sem nome',
+    address: place.formattedAddress || '',
+    lat: place.location?.latitude ?? null,
+    lng: place.location?.longitude ?? null
+  })).filter(p => p.placeId);
+}
+
+async function createExternalScan({ target, keyword, gridSize, radiusKm, centerLat, centerLng, includeCompetitors = false, sourceScan = null }) {
+  const db = readDb();
+  const grid = sanitizeGridSize(gridSize || db.settings.defaultGridSize);
+  const radius = sanitizeRadius(radiusKm || db.settings.defaultRadiusKm);
+  const targetPlaceId = cleanPlaceId(target.placeId);
+  if (!targetPlaceId) throw new Error('Place ID do alvo não encontrado.');
+  const kw = String(keyword || '').trim();
+  if (!kw) throw new Error('Informe a palavra-chave.');
+
+  let profileLat = normalizeNumber(target.profileLat ?? target.lat);
+  let profileLng = normalizeNumber(target.profileLng ?? target.lng);
+  if ((profileLat === null || profileLng === null) && targetPlaceId) {
+    const coords = await geocodeByPlaceId(targetPlaceId);
+    if (coords) { profileLat = coords.lat; profileLng = coords.lng; if (!target.address) target.address = coords.formattedAddress || ''; }
+  }
+
+  const finalCenterLat = normalizeNumber(centerLat) ?? normalizeNumber(sourceScan?.center?.lat) ?? profileLat;
+  const finalCenterLng = normalizeNumber(centerLng) ?? normalizeNumber(sourceScan?.center?.lng) ?? profileLng;
+  if (finalCenterLat === null || finalCenterLng === null) throw new Error('Centro do grid não encontrado.');
+
+  const searchRadiusMeters = getSearchRadiusMeters(radius, grid);
+  const gridPoints = generateGrid(finalCenterLat, finalCenterLng, grid, radius);
+  const results = [];
+  const competitorMap = new Map();
+
+  for (const point of gridPoints) {
+    const places = await searchPlacesAtPoint({ query: kw, lat: point.lat, lng: point.lng, searchRadiusMeters, includeNames: Boolean(includeCompetitors) });
+    const placeIds = places.map(place => place.id);
+    const index = placeIds.findIndex(placeId => placeId === targetPlaceId);
+    const position = index === -1 ? null : index + 1;
+    if (includeCompetitors) {
+      places.forEach((place, idx) => {
+        if (!place.id || place.id === targetPlaceId) return;
+        if (!competitorMap.has(place.id)) competitorMap.set(place.id, { name: place.name, positions: [] });
+        const data = competitorMap.get(place.id);
+        if (!data.name && place.name) data.name = place.name;
+        data.positions.push(idx + 1);
+      });
+    }
+    results.push({ ...point, position, color: rankColor(position), checkedResults: places.length, checkedAt: new Date().toISOString() });
+  }
+
+  const targetId = target.id || id('prospect');
+  const scan = {
+    id: id('scan'),
+    clientId: targetId,
+    clientName: target.name || 'Prospect sem nome',
+    clientCity: target.city || sourceScan?.clientCity || '',
+    clientSpecialty: target.specialty || sourceScan?.clientSpecialty || '',
+    clientAddress: target.address || '',
+    clientPlaceId: targetPlaceId,
+    clientSnapshot: {
+      id: targetId,
+      name: target.name || 'Prospect sem nome',
+      city: target.city || sourceScan?.clientCity || '',
+      specialty: target.specialty || sourceScan?.clientSpecialty || '',
+      address: target.address || '',
+      placeId: targetPlaceId,
+      profileLat,
+      profileLng
+    },
+    keywordId: target.keywordId || 'quick_keyword',
+    keyword: kw,
+    gridSize: grid,
+    radiusKm: radius,
+    searchRadiusMeters,
+    center: { lat: Number(finalCenterLat.toFixed(7)), lng: Number(finalCenterLng.toFixed(7)) },
+    points: results,
+    summary: summarizeScan(results),
+    competitors: includeCompetitors ? summarizeCompetitors(competitorMap, results.length) : [],
+    competitorsEnabled: Boolean(includeCompetitors),
+    source: target.source || 'prospect',
+    createdAt: new Date().toISOString(),
+    note: 'Resultado gerado por busca geolocalizada via Google Places. Trate como fotografia estratégica do momento.'
+  };
+
+  const latestDb = readDb();
+  latestDb.scans.push(scan);
+  writeDb(latestDb);
+  return scan;
+}
+
 async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, centerLng, saveCenter = false, includeCompetitors = false }) {
   const db = readDb();
   const client = db.clients.find(c => c.id === clientId);
@@ -959,6 +1066,43 @@ app.post('/api/grid/preview', requireAuth, (req, res) => {
   res.json({ gridSize, radiusKm, centerLat, centerLng, points: generateGrid(centerLat, centerLng, gridSize, radiusKm) });
 });
 
+
+app.post('/api/prospects/search', requireAuth, async (req, res) => {
+  try {
+    const places = await searchProspectPlaces(req.body || {});
+    res.json({ places });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/scans/run-prospect', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const scan = await createExternalScan({
+      target: {
+        placeId: body.placeId,
+        name: body.name,
+        address: body.address,
+        city: body.city,
+        specialty: body.specialty,
+        profileLat: body.profileLat,
+        profileLng: body.profileLng,
+        source: 'prospect'
+      },
+      keyword: body.keyword,
+      gridSize: body.gridSize,
+      radiusKm: body.radiusKm,
+      centerLat: body.centerLat || body.profileLat,
+      centerLng: body.centerLng || body.profileLng,
+      includeCompetitors: Boolean(body.includeCompetitors)
+    });
+    res.json(scan);
+  } catch (error) {
+    res.status(500).json({ error: error.message, detail: error.stack });
+  }
+});
+
 app.get('/api/scans', requireAuth, (req, res) => {
   const db = readDb();
   const clientId = req.query.clientId;
@@ -976,6 +1120,35 @@ app.get('/api/scans/:id', requireAuth, (req, res) => {
 app.post('/api/scans/run', requireAuth, async (req, res) => {
   try {
     const scan = await createScan(req.body);
+    res.json(scan);
+  } catch (error) {
+    res.status(500).json({ error: error.message, detail: error.stack });
+  }
+});
+
+
+app.post('/api/scans/:id/run-competitor', requireAuth, async (req, res) => {
+  const db = readDb();
+  const sourceScan = db.scans.find(s => s.id === req.params.id);
+  if (!sourceScan) return res.status(404).json({ error: 'Análise de origem não encontrada.' });
+  try {
+    const body = req.body || {};
+    const scan = await createExternalScan({
+      target: {
+        placeId: body.placeId,
+        name: body.name || 'Concorrente',
+        city: sourceScan.clientCity,
+        specialty: sourceScan.clientSpecialty,
+        source: 'competitor'
+      },
+      keyword: sourceScan.keyword,
+      gridSize: sourceScan.gridSize,
+      radiusKm: sourceScan.radiusKm,
+      centerLat: sourceScan.center.lat,
+      centerLng: sourceScan.center.lng,
+      includeCompetitors: Boolean(body.includeCompetitors),
+      sourceScan
+    });
     res.json(scan);
   } catch (error) {
     res.status(500).json({ error: error.message, detail: error.stack });

@@ -297,6 +297,7 @@ function setView(viewName, options = {}) {
     clients: ['Clientes', 'Cadastre perfis, status e localização.'],
     keywords: ['Palavras', 'Gerencie termos ativos e inativos.'],
     scan: ['Nova análise', 'Ajuste o grid no mapa antes de rodar.'],
+    prospect: ['Análise rápida', 'Gere grid para prospecção sem cadastrar cliente.'],
     history: ['Histórico', 'Compare análises já realizadas.'],
     automation: ['Automação', 'Rode análises em massa para clientes ativos.'],
     settings: ['Configurações', 'Controle webhook, relatório e padrões.']
@@ -595,6 +596,7 @@ function renderCompetitors(scan) {
       <td class="muted-cell">${item.bestPosition ?? '—'}</td>
       <td class="muted-cell">${item.appearances}/${item.totalPoints}</td>
       <td class="muted-cell">${item.top10Percent}%</td>
+      <td><button class="secondary mini-btn" onclick="runCompetitorGrid('${state.currentScan?.id || ''}','${item.placeId}','${escapeHtml(item.name || '')}')">Gerar grid</button></td>
     </tr>`).join('');
   panel.innerHTML = `<div class="competitors-head">
     <div>
@@ -604,7 +606,7 @@ function renderCompetitors(scan) {
     <p>${competitors.length} perfil(is) encontrado(s)</p>
   </div>
   <table class="competitors-table">
-    <thead><tr><th>#</th><th>Perfil</th><th>Média</th><th>Melhor</th><th>Apareceu</th><th>Top 10</th></tr></thead>
+    <thead><tr><th>#</th><th>Perfil</th><th>Média</th><th>Melhor</th><th>Apareceu</th><th>Top 10</th><th>Ação</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
   panel.classList.remove('hidden');
@@ -652,6 +654,87 @@ async function openScan(id) {
   setView('scan', { mode: 'history' });
   setTimeout(() => renderScanResult(scan, 'history'), 200);
 }
+
+
+function selectProspect(place) {
+  const form = $('#prospectRunForm');
+  form.placeId.value = place.placeId || '';
+  form.name.value = place.name || '';
+  form.address.value = place.address || '';
+  form.profileLat.value = place.lat ?? '';
+  form.profileLng.value = place.lng ?? '';
+  form.selectedLabel.value = `${place.name || 'Perfil selecionado'}${place.address ? ' · ' + place.address : ''}`;
+  if (!form.keyword.value) {
+    const specialty = $('#prospectSearchForm')?.specialty?.value || '';
+    const city = $('#prospectSearchForm')?.city?.value || '';
+    form.keyword.value = [specialty, city].filter(Boolean).join(' ').trim();
+  }
+}
+window.selectProspect = selectProspect;
+
+async function runCompetitorGrid(scanId, placeId, name) {
+  if (!scanId || !placeId) return alert('Concorrente inválido.');
+  if (!confirm(`Gerar grid para este concorrente?
+${name || placeId}`)) return;
+  const status = $('#reportStatus');
+  status?.classList.remove('hidden');
+  if (status) status.textContent = 'Rodando grid do concorrente...';
+  try {
+    const scan = await api(`/api/scans/${scanId}/run-competitor`, { method: 'POST', body: JSON.stringify({ placeId, name, includeCompetitors: true }) });
+    await loadAll();
+    setView('scan', { mode: 'result' });
+    renderScanResult(scan, 'result');
+    if (status) status.textContent = 'Grid do concorrente gerado com sucesso.';
+  } catch (err) {
+    if (status) status.textContent = `Erro: ${err.message}`;
+    else alert(err.message);
+  }
+}
+window.runCompetitorGrid = runCompetitorGrid;
+
+$('#prospectSearchForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = Object.fromEntries(new FormData(e.currentTarget));
+  const status = $('#prospectSearchStatus');
+  const list = $('#prospectResults');
+  status.classList.remove('hidden');
+  status.textContent = 'Buscando perfis no Google...';
+  list.innerHTML = '';
+  try {
+    const result = await api('/api/prospects/search', { method: 'POST', body: JSON.stringify(form) });
+    const places = result.places || [];
+    status.textContent = places.length ? `${places.length} resultado(s) encontrado(s). Escolha o perfil correto.` : 'Nenhum resultado encontrado.';
+    list.innerHTML = places.map((place, idx) => `<div class="item">
+      <div class="item-header">
+        <div><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(place.address || '')}</small></div>
+        <button class="secondary" onclick='selectProspect(${JSON.stringify(place).replaceAll("'", "&#039;")})'>Selecionar</button>
+      </div>
+    </div>`).join('');
+  } catch (err) {
+    status.textContent = `Erro: ${err.message}`;
+  }
+});
+
+$('#prospectRunForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const raw = Object.fromEntries(new FormData(e.currentTarget));
+  raw.includeCompetitors = e.currentTarget.includeCompetitors.checked;
+  raw.city = $('#prospectSearchForm')?.city?.value || '';
+  raw.specialty = $('#prospectSearchForm')?.specialty?.value || '';
+  const status = $('#prospectRunStatus');
+  status.classList.remove('hidden');
+  status.textContent = 'Rodando análise rápida...';
+  try {
+    if (!raw.placeId) throw new Error('Selecione um perfil primeiro.');
+    const scan = await api('/api/scans/run-prospect', { method: 'POST', body: JSON.stringify(raw) });
+    status.textContent = 'Análise rápida concluída.';
+    await loadAll();
+    setView('scan', { mode: 'result' });
+    renderScanResult(scan, 'result');
+  } catch (err) {
+    status.textContent = `Erro: ${err.message}`;
+  }
+});
 
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();

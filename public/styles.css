@@ -263,3 +263,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .competitors-table tr:last-child td { border-bottom: 0; }
 .competitors-table .rank-num { color: var(--brand-2); font-size: 18px; font-weight: 950; }
 .competitors-table .muted-cell { color: var(--muted); font-weight: 700; }
+
+.mini-btn { padding: 8px 10px; font-size: 12px; border-radius: 10px; white-space: nowrap; }
+#prospectResults { margin-top: 14px; }

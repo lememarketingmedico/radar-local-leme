@@ -1,6 +1,6 @@
 {
   "name": "radar-local-leme",
-  "version": "3.9.0",
+  "version": "4.2.0",
   "description": "Radar Local LEME - Grid de posicionamento local com preview intuitivo, relatório profissional e automação n8n",
   "main": "server.js",
   "scripts": {

@@ -33,6 +33,7 @@
         <button class="nav-btn" data-view="clients">Clientes</button>
         <button class="nav-btn" data-view="keywords">Palavras</button>
         <button class="nav-btn" data-view="scan">Nova análise</button>
+        <button class="nav-btn" data-view="prospect">Análise rápida</button>
         <button class="nav-btn" data-view="history">Histórico</button>
         <button class="nav-btn" data-view="automation">Automação</button>
         <button class="nav-btn" data-view="settings">Configurações</button>
@@ -183,6 +184,49 @@
             </div>
             <div id="competitorsPanel" class="competitors-panel hidden"></div>
             <div id="reportStatus" class="status-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="prospectView" class="view hidden">
+        <div class="grid-2">
+          <div class="panel">
+            <h2>Análise rápida para prospecção</h2>
+            <p class="panel-subtitle">Pesquise um médico ou clínica sem cadastrar como cliente.</p>
+            <form id="prospectSearchForm" class="stack-form">
+              <label>Nome do médico, clínica ou perfil</label>
+              <input name="query" placeholder="Ex: Dr. João Cardiologista Araguari" required />
+              <div class="field-row">
+                <div><label>Cidade</label><input name="city" placeholder="Ex: Araguari-MG" /></div>
+                <div><label>Especialidade</label><input name="specialty" placeholder="Ex: Cardiologista" /></div>
+              </div>
+              <button type="submit">Buscar perfil no Google</button>
+            </form>
+            <div id="prospectSearchStatus" class="status-box hidden"></div>
+            <div id="prospectResults" class="list"></div>
+          </div>
+          <div class="panel">
+            <h2>Gerar grid rápido</h2>
+            <p class="panel-subtitle">Escolha um resultado da busca e rode o grid sem salvar cliente.</p>
+            <form id="prospectRunForm" class="stack-form">
+              <input type="hidden" name="placeId" />
+              <input type="hidden" name="name" />
+              <input type="hidden" name="address" />
+              <input type="hidden" name="profileLat" />
+              <input type="hidden" name="profileLng" />
+              <label>Perfil selecionado</label>
+              <input name="selectedLabel" placeholder="Nenhum perfil selecionado" disabled />
+              <label>Palavra-chave</label>
+              <input name="keyword" placeholder="Ex: cardiologista em Araguari" required />
+              <div class="field-row">
+                <div><label>Grid</label><select name="gridSize"><option value="3">3x3</option><option value="5" selected>5x5</option><option value="7">7x7</option></select></div>
+                <div><label>Raio em km</label><input name="radiusKm" type="number" min="0.2" max="50" step="0.1" value="3" /></div>
+              </div>
+              <label class="checkline"><input type="checkbox" name="includeCompetitors" checked /> Incluir ranking de concorrentes</label>
+              <button type="submit">Rodar análise rápida</button>
+            </form>
+            <div id="prospectRunStatus" class="status-box hidden"></div>
           </div>
         </div>
       </section>
