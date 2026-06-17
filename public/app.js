@@ -319,6 +319,7 @@ function setScanMode(mode) {
     if (hint) hint.textContent = 'Arraste o ícone cinza ao lado esquerdo do grid. O grid acompanha o movimento.';
     $('#downloadReportBtn').disabled = !state.currentScan;
     $('#sendReportBtn').disabled = !state.currentScan;
+    $('#competitorsPanel')?.classList.add('hidden');
   }
   if (mode === 'result') {
     if (resultTitle) resultTitle.textContent = 'Resultado da análise';
@@ -568,6 +569,39 @@ async function renderPreviewGrid() {
   }, 80);
 }
 
+
+function renderCompetitors(scan) {
+  const panel = $('#competitorsPanel');
+  if (!panel) return;
+  const competitors = Array.isArray(scan.competitors) ? scan.competitors : [];
+  if (!competitors.length) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  const rows = competitors.slice(0, 15).map((item, idx) => `
+    <tr>
+      <td class="rank-num">${idx + 1}</td>
+      <td>${escapeHtml(item.name || item.placeId || 'Perfil sem nome')}</td>
+      <td>${item.averagePosition ?? '—'}</td>
+      <td class="muted-cell">${item.bestPosition ?? '—'}</td>
+      <td class="muted-cell">${item.appearances}/${item.totalPoints}</td>
+      <td class="muted-cell">${item.top10Percent}%</td>
+    </tr>`).join('');
+  panel.innerHTML = `<div class="competitors-head">
+    <div>
+      <h3>Ranking de concorrentes</h3>
+      <p>Ordenado pela posição média nos pontos do grid.</p>
+    </div>
+    <p>${competitors.length} perfil(is) encontrado(s)</p>
+  </div>
+  <table class="competitors-table">
+    <thead><tr><th>#</th><th>Perfil</th><th>Média</th><th>Melhor</th><th>Apareceu</th><th>Top 10</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  panel.classList.remove('hidden');
+}
+
 function renderScanResult(scan, mode = 'result') {
   state.currentScan = scan;
   setScanMode(mode);
@@ -579,6 +613,7 @@ function renderScanResult(scan, mode = 'result') {
   $('#downloadReportBtn').disabled = false;
   $('#sendReportBtn').disabled = false;
   renderResultMap(scan);
+  renderCompetitors(scan);
 }
 
 async function renderResultMap(scan) {
@@ -757,6 +792,7 @@ $('#scanForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = Object.fromEntries(new FormData(e.currentTarget));
   form.saveCenter = e.currentTarget.saveCenter.checked;
+  form.includeCompetitors = e.currentTarget.includeCompetitors?.checked || false;
   const status = $('#scanStatus');
   status.classList.remove('hidden');
   status.textContent = 'Rodando análise. Isso pode levar alguns segundos...';

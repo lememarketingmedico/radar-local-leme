@@ -155,6 +155,8 @@
                 <button type="button" class="secondary" id="saveCenterBtn">Salvar centro</button>
               </div>
               <label class="checkline"><input type="checkbox" name="saveCenter" checked /> Salvar centro usado no cliente</label>
+              <label class="checkline"><input type="checkbox" name="includeCompetitors" /> Incluir ranking de concorrentes</label>
+              <p class="form-note">Concorrentes mostram nomes dos perfis encontrados. Use quando precisar da lista completa.</p>
               <button type="submit">Rodar análise</button>
             </form>
             <div id="scanStatus" class="status-box hidden"></div>
@@ -179,6 +181,7 @@
               <span><i class="dot red"></i>11+</span>
               <span><i class="dot gray"></i>Não apareceu</span>
             </div>
+            <div id="competitorsPanel" class="competitors-panel hidden"></div>
             <div id="reportStatus" class="status-box hidden"></div>
           </div>
         </div>

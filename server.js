@@ -238,11 +238,12 @@ async function resolveCoordinates({ placeId, address, city, profileLat, profileL
   throw new Error('Não foi possível descobrir latitude e longitude. Informe o endereço completo ou preencha as coordenadas em opções avançadas.');
 }
 
-async function searchPlacesAtPoint({ query, lat, lng, searchRadiusMeters = 1000, maxPages = 3 }) {
+async function searchPlacesAtPoint({ query, lat, lng, searchRadiusMeters = 1000, maxPages = 3, includeNames = false }) {
   if (!GOOGLE_MAPS_BACKEND_KEY) throw new Error('GOOGLE_MAPS_BACKEND_KEY não configurada no servidor.');
   const endpoint = 'https://places.googleapis.com/v1/places:searchText';
   let pageToken = null;
-  const placeIds = [];
+  const places = [];
+  const fieldMask = includeNames ? 'places.id,places.displayName,nextPageToken' : 'places.id,nextPageToken';
   for (let page = 0; page < maxPages; page++) {
     const body = {
       textQuery: query,
@@ -257,19 +258,45 @@ async function searchPlacesAtPoint({ query, lat, lng, searchRadiusMeters = 1000,
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': GOOGLE_MAPS_BACKEND_KEY,
-        'X-Goog-FieldMask': 'places.id,nextPageToken'
+        'X-Goog-FieldMask': fieldMask
       },
       body: JSON.stringify(body)
     });
     const json = await response.json();
     if (!response.ok) throw new Error(json?.error?.message || 'Erro ao consultar Places API');
-    const ids = (json.places || []).map(place => cleanPlaceId(place.id)).filter(Boolean);
-    placeIds.push(...ids);
+    for (const place of (json.places || [])) {
+      const placeId = cleanPlaceId(place.id);
+      if (!placeId) continue;
+      places.push({
+        id: placeId,
+        name: includeNames ? (place.displayName?.text || place.displayName || '') : ''
+      });
+    }
     if (!json.nextPageToken) break;
     pageToken = json.nextPageToken;
     await sleep(1800);
   }
-  return placeIds;
+  return places;
+}
+
+function summarizeCompetitors(competitorMap, totalPoints) {
+  return Array.from(competitorMap.entries()).map(([placeId, data]) => {
+    const avg = data.positions.length ? data.positions.reduce((sum, n) => sum + n, 0) / data.positions.length : null;
+    const top10 = data.positions.filter(n => n <= 10).length;
+    return {
+      placeId,
+      name: data.name || 'Perfil sem nome',
+      averagePosition: avg ? Number(avg.toFixed(2)) : null,
+      bestPosition: data.positions.length ? Math.min(...data.positions) : null,
+      worstPosition: data.positions.length ? Math.max(...data.positions) : null,
+      appearances: data.positions.length,
+      totalPoints,
+      appearancesPercent: Number(((data.positions.length / Math.max(totalPoints, 1)) * 100).toFixed(1)),
+      top10Percent: Number(((top10 / Math.max(totalPoints, 1)) * 100).toFixed(1))
+    };
+  })
+    .sort((a, b) => (a.averagePosition ?? 999) - (b.averagePosition ?? 999) || b.appearances - a.appearances || String(a.name).localeCompare(String(b.name)))
+    .slice(0, 30);
 }
 
 function summarizeScan(points) {
@@ -570,7 +597,7 @@ async function buildReportPng(scan) {
   return await sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, centerLng, saveCenter = false }) {
+async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, centerLng, saveCenter = false, includeCompetitors = false }) {
   const db = readDb();
   const client = db.clients.find(c => c.id === clientId);
   const keyword = db.keywords.find(k => k.id === keywordId && k.clientId === clientId);
@@ -589,12 +616,23 @@ async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, 
   const gridPoints = generateGrid(finalCenterLat, finalCenterLng, grid, radius);
   const targetPlaceId = cleanPlaceId(client.placeId);
   const results = [];
+  const competitorMap = new Map();
 
   for (const point of gridPoints) {
-    const placeIds = await searchPlacesAtPoint({ query: keyword.term, lat: point.lat, lng: point.lng, searchRadiusMeters });
+    const places = await searchPlacesAtPoint({ query: keyword.term, lat: point.lat, lng: point.lng, searchRadiusMeters, includeNames: Boolean(includeCompetitors) });
+    const placeIds = places.map(place => place.id);
     const index = placeIds.findIndex(placeId => placeId === targetPlaceId);
     const position = index === -1 ? null : index + 1;
-    results.push({ ...point, position, color: rankColor(position), checkedResults: placeIds.length, checkedAt: new Date().toISOString() });
+    if (includeCompetitors) {
+      places.forEach((place, idx) => {
+        if (!place.id || place.id === targetPlaceId) return;
+        if (!competitorMap.has(place.id)) competitorMap.set(place.id, { name: place.name, positions: [] });
+        const data = competitorMap.get(place.id);
+        if (!data.name && place.name) data.name = place.name;
+        data.positions.push(idx + 1);
+      });
+    }
+    results.push({ ...point, position, color: rankColor(position), checkedResults: places.length, checkedAt: new Date().toISOString() });
   }
 
   const scan = {
@@ -623,6 +661,8 @@ async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, 
     center: { lat: Number(finalCenterLat.toFixed(7)), lng: Number(finalCenterLng.toFixed(7)) },
     points: results,
     summary: summarizeScan(results),
+    competitors: includeCompetitors ? summarizeCompetitors(competitorMap, results.length) : [],
+    competitorsEnabled: Boolean(includeCompetitors),
     createdAt: new Date().toISOString(),
     note: 'Resultado gerado por busca geolocalizada via Google Places. Trate como fotografia estratégica do momento.'
   };
@@ -674,6 +714,7 @@ function n8nPayload(scan, imageBase64) {
       worst_position: scan.summary.worstPosition
     },
     points: scan.points.map(p => ({ row: p.row, col: p.col, lat: p.lat, lng: p.lng, position: p.position, color: p.color, found: Boolean(p.position) })),
+    competitors: scan.competitors || [],
     report: {
       file_name: `${slug(scan.clientName)}-${slug(scan.keyword)}-radar-local.png`,
       mime_type: 'image/png',
@@ -1014,7 +1055,8 @@ async function runAutomationJob(jobId, options) {
         radiusKm: options.radiusKm || task.client.defaultRadiusKm,
         centerLat: options.useSavedGridCenter === false ? task.client.profileLat : task.client.gridCenterLat,
         centerLng: options.useSavedGridCenter === false ? task.client.profileLng : task.client.gridCenterLng,
-        saveCenter: false
+        saveCenter: false,
+        includeCompetitors: Boolean(options.includeCompetitors)
       });
       if (options.sendToN8n !== false) await sendScanToN8n(scan, dbLoop.settings.n8nResultWebhookUrl);
       currentJob.completed += 1;

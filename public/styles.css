@@ -238,3 +238,28 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .move-help { margin-top: 10px; color: var(--muted); font-size: 13px; font-weight: 700; }
 #scanView.preview-mode #map { min-height: 720px; }
 #scanView.result-mode #map, #scanView.history-mode #map { min-height: 760px; }
+
+.competitors-panel {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--panel-2) 76%, transparent);
+  overflow: hidden;
+}
+.competitors-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.competitors-head h3 { margin: 0; font-size: 20px; }
+.competitors-head p { margin: 5px 0 0; color: var(--muted); font-weight: 650; }
+.competitors-table { width: 100%; border-collapse: collapse; }
+.competitors-table th, .competitors-table td { padding: 13px 16px; border-bottom: 1px solid var(--line); text-align: left; }
+.competitors-table th { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.competitors-table td { color: var(--text); font-weight: 750; }
+.competitors-table tr:last-child td { border-bottom: 0; }
+.competitors-table .rank-num { color: var(--brand-2); font-size: 18px; font-weight: 950; }
+.competitors-table .muted-cell { color: var(--muted); font-weight: 700; }
