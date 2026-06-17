@@ -1,0 +1,16 @@
+{
+  "name": "radar-local-leme",
+  "version": "2.0.0",
+  "description": "Radar Local LEME - Grid de posicionamento local para Google Business Profile",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

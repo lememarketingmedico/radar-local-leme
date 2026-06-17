@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radar Local LEME</title>
+  <link rel="icon" type="image/png" href="/assets/icone.png" />
+  <link rel="apple-touch-icon" href="/assets/icone.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="loginScreen" class="login-screen hidden">
+    <div class="login-card">
+      <img class="login-logo" src="/assets/logo-horizontal-white.png" alt="LEME" data-logo-dark="/assets/logo-horizontal-white.png" data-logo-light="/assets/logo-horizontal.png" />
+      <h1>Radar Local</h1>
+      <p>Analise o posicionamento local dos clientes no Google Maps com grids visuais e relatórios automáticos.</p>
+      <form id="loginForm">
+        <label>Usuário</label>
+        <input name="user" autocomplete="username" placeholder="leme" required />
+        <label>Senha</label>
+        <input name="password" type="password" autocomplete="current-password" placeholder="Sua senha" required />
+        <button type="submit">Entrar</button>
+      </form>
+      <small id="loginMessage"></small>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="logo-wrap">
+        <img id="sidebarLogo" src="/assets/logo-horizontal-white.png" alt="LEME" />
+      </div>
+      <nav>
+        <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+        <button class="nav-btn" data-view="clients">Clientes</button>
+        <button class="nav-btn" data-view="scan">Nova análise</button>
+        <button class="nav-btn" data-view="history">Histórico</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button id="themeToggle" class="ghost">Modo claro</button>
+        <button id="logoutBtn" class="ghost danger">Sair</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="pageSubtitle">Visão geral do posicionamento local.</p>
+        </div>
+        <span class="sync-pill" id="syncStatus">Autoatualização ativa</span>
+      </header>
+
+      <section id="dashboardView" class="view">
+        <div class="cards-grid">
+          <div class="metric-card"><span>Clientes</span><strong id="metricClients">0</strong></div>
+          <div class="metric-card"><span>Palavras</span><strong id="metricKeywords">0</strong></div>
+          <div class="metric-card"><span>Análises</span><strong id="metricScans">0</strong></div>
+          <div class="metric-card"><span>Último Top 3</span><strong id="metricTop3">—</strong></div>
+        </div>
+        <div class="panel">
+          <h2>Últimas análises</h2>
+          <div id="latestScans" class="list"></div>
+        </div>
+      </section>
+
+      <section id="clientsView" class="view hidden">
+        <div class="grid-2">
+          <div class="panel">
+            <h2>Novo cliente</h2>
+            <p class="panel-subtitle">Cadastro resumido. Latitude e longitude só são necessárias se o Google não conseguir localizar pelo Place ID ou endereço.</p>
+            <form id="clientForm" class="stack-form">
+              <label>Nome do cliente *</label>
+              <input name="name" placeholder="Ex: Dr. Diogo Martins" required />
+              <div class="field-row">
+                <div>
+                  <label>Cidade</label>
+                  <input name="city" placeholder="Ex: Araguari-MG" />
+                </div>
+                <div>
+                  <label>Especialidade</label>
+                  <input name="specialty" placeholder="Ex: Cardiologista" />
+                </div>
+              </div>
+              <label>Endereço</label>
+              <input name="address" placeholder="Endereço da clínica" />
+              <label>Place ID do Google *</label>
+              <input name="placeId" placeholder="ChIJ..." required />
+              <details class="advanced-box">
+                <summary>Opções avançadas: inserir coordenadas manualmente</summary>
+                <div class="field-row advanced-fields">
+                  <div>
+                    <label>Latitude</label>
+                    <input name="lat" placeholder="-18.6470" />
+                  </div>
+                  <div>
+                    <label>Longitude</label>
+                    <input name="lng" placeholder="-48.1930" />
+                  </div>
+                </div>
+              </details>
+              <label>Observações</label>
+              <textarea name="notes" rows="3" placeholder="Informações internas"></textarea>
+              <button type="submit">Salvar cliente</button>
+            </form>
+            <p class="hint">Dica: o sistema tenta buscar as coordenadas automaticamente pelo Place ID. Se não conseguir, preencha latitude e longitude manualmente.</p>
+          </div>
+
+          <div class="panel">
+            <h2>Clientes cadastrados</h2>
+            <div id="clientsList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scanView" class="view hidden">
+        <div class="grid-2 wide-result">
+          <div class="panel">
+            <h2>Configurar análise</h2>
+            <form id="keywordForm" class="stack-form small-gap">
+              <label>Cliente</label>
+              <select name="clientId" id="keywordClientSelect"></select>
+              <label>Nova palavra-chave</label>
+              <input name="term" placeholder="Ex: cardiologista perto de mim" />
+              <button type="submit" class="secondary">Adicionar palavra</button>
+            </form>
+            <hr />
+            <form id="scanForm" class="stack-form">
+              <label>Cliente</label>
+              <select name="clientId" id="scanClientSelect"></select>
+              <label>Palavra-chave</label>
+              <select name="keywordId" id="scanKeywordSelect"></select>
+              <div class="field-row">
+                <div>
+                  <label>Grid</label>
+                  <select name="gridSize">
+                    <option value="3">3x3</option>
+                    <option value="5" selected>5x5</option>
+                    <option value="7">7x7</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Raio em km</label>
+                  <input name="radiusKm" type="number" min="0.2" max="50" step="0.1" value="3" />
+                </div>
+              </div>
+              <p class="hint no-margin">Você pode escolher qualquer raio entre 0,2 km e 50 km. Para análises urbanas, normalmente 3 km a 8 km já funciona bem.</p>
+              <button type="submit">Rodar análise</button>
+            </form>
+            <div id="scanStatus" class="status-box hidden"></div>
+          </div>
+
+          <div class="panel result-panel">
+            <div class="result-header">
+              <div>
+                <h2>Resultado</h2>
+                <p id="resultHint" class="panel-subtitle">Rode ou abra uma análise para gerar o mapa.</p>
+              </div>
+              <div class="report-actions">
+                <button id="downloadReportBtn" class="secondary" disabled>Baixar imagem</button>
+                <button id="sendReportBtn" disabled>Gerar e enviar ao n8n</button>
+              </div>
+            </div>
+            <div id="resultSummary" class="summary-grid"></div>
+            <div id="map" class="map"></div>
+            <div class="legend">
+              <span><i class="dot green"></i>Top 3</span>
+              <span><i class="dot yellow"></i>Top 10</span>
+              <span><i class="dot red"></i>11+</span>
+              <span><i class="dot gray"></i>Não apareceu</span>
+            </div>
+            <div id="reportStatus" class="status-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="historyView" class="view hidden">
+        <div class="panel">
+          <h2>Histórico</h2>
+          <div id="historyList" class="list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
