@@ -266,3 +266,32 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 
 .mini-btn { padding: 8px 10px; font-size: 12px; border-radius: 10px; white-space: nowrap; }
 #prospectResults { margin-top: 14px; }
+
+.competitors-table .target-row td {
+  background: rgba(44, 123, 229, 0.08);
+}
+.target-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(44, 123, 229, 0.14);
+  color: var(--brand-2);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.target-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(44, 123, 229, 0.12);
+  color: var(--brand-2);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}

@@ -650,6 +650,10 @@ async function renderPreviewGrid() {
 }
 
 
+function jsString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+}
+
 function renderCompetitors(scan) {
   const panel = $('#competitorsPanel');
   if (!panel) return;
@@ -659,20 +663,26 @@ function renderCompetitors(scan) {
     panel.innerHTML = '';
     return;
   }
-  const rows = competitors.slice(0, 15).map((item, idx) => `
-    <tr>
+  const rows = competitors.slice(0, 15).map((item, idx) => {
+    const isTarget = Boolean(item.isTarget);
+    const action = isTarget
+      ? '<span class="target-action">Análise atual</span>'
+      : `<button class="secondary mini-btn" onclick="runCompetitorGrid('${state.currentScan?.id || ''}','${item.placeId}','${jsString(item.name || '')}')">Gerar grid</button>`;
+    const label = isTarget ? '<span class="target-badge">Cliente analisado</span>' : '';
+    return `<tr class="${isTarget ? 'target-row' : ''}">
       <td class="rank-num">${idx + 1}</td>
-      <td>${escapeHtml(item.name || item.placeId || 'Perfil sem nome')}</td>
+      <td>${escapeHtml(item.name || item.placeId || 'Perfil sem nome')} ${label}</td>
       <td>${item.averagePosition ?? '—'}</td>
       <td class="muted-cell">${item.bestPosition ?? '—'}</td>
       <td class="muted-cell">${item.appearances}/${item.totalPoints}</td>
       <td class="muted-cell">${item.top10Percent}%</td>
-      <td><button class="secondary mini-btn" onclick="runCompetitorGrid('${state.currentScan?.id || ''}','${item.placeId}','${escapeHtml(item.name || '')}')">Gerar grid</button></td>
-    </tr>`).join('');
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
   panel.innerHTML = `<div class="competitors-head">
     <div>
-      <h3>Ranking de concorrentes</h3>
-      <p>Ordenado pela posição média nos pontos do grid.</p>
+      <h3>Ranking de perfis encontrados</h3>
+      <p>Inclui o cliente analisado e os concorrentes, ordenados pela posição média nos pontos do grid.</p>
     </div>
     <p>${competitors.length} perfil(is) encontrado(s)</p>
   </div>

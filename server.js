@@ -295,7 +295,7 @@ async function searchPlacesAtPoint({ query, lat, lng, searchRadiusMeters = 1000,
 }
 
 function summarizeCompetitors(competitorMap, totalPoints) {
-  return Array.from(competitorMap.entries()).map(([placeId, data]) => {
+  const items = Array.from(competitorMap.entries()).map(([placeId, data]) => {
     const avg = data.positions.length ? data.positions.reduce((sum, n) => sum + n, 0) / data.positions.length : null;
     const top10 = data.positions.filter(n => n <= 10).length;
     return {
@@ -307,11 +307,19 @@ function summarizeCompetitors(competitorMap, totalPoints) {
       appearances: data.positions.length,
       totalPoints,
       appearancesPercent: Number(((data.positions.length / Math.max(totalPoints, 1)) * 100).toFixed(1)),
-      top10Percent: Number(((top10 / Math.max(totalPoints, 1)) * 100).toFixed(1))
+      top10Percent: Number(((top10 / Math.max(totalPoints, 1)) * 100).toFixed(1)),
+      isTarget: Boolean(data.isTarget)
     };
-  })
-    .sort((a, b) => (a.averagePosition ?? 999) - (b.averagePosition ?? 999) || b.appearances - a.appearances || String(a.name).localeCompare(String(b.name)))
-    .slice(0, 30);
+  }).sort((a, b) => (a.averagePosition ?? 999) - (b.averagePosition ?? 999) || b.appearances - a.appearances || String(a.name).localeCompare(String(b.name)));
+
+  const target = items.find(item => item.isTarget);
+  const topItems = items.slice(0, 30);
+  if (target && !topItems.some(item => item.placeId === target.placeId)) {
+    topItems.pop();
+    topItems.push(target);
+    topItems.sort((a, b) => (a.averagePosition ?? 999) - (b.averagePosition ?? 999) || b.appearances - a.appearances || String(a.name).localeCompare(String(b.name)));
+  }
+  return topItems;
 }
 
 function summarizeScan(points) {
@@ -987,6 +995,15 @@ async function createExternalScan({ target, keyword, gridSize, radiusKm, centerL
     results.push({ ...point, position, color: rankColor(position), checkedResults: places.length, checkedAt: new Date().toISOString() });
   }
 
+  if (includeCompetitors) {
+    const targetPositions = results.map(point => point.position).filter(Boolean);
+    competitorMap.set(targetPlaceId, {
+      name: target.name || 'Perfil analisado',
+      positions: targetPositions,
+      isTarget: true
+    });
+  }
+
   const targetId = target.id || id('prospect');
   const scan = {
     id: id('scan'),
@@ -1063,6 +1080,15 @@ async function createScan({ clientId, keywordId, gridSize, radiusKm, centerLat, 
       });
     }
     results.push({ ...point, position, color: rankColor(position), checkedResults: places.length, checkedAt: new Date().toISOString() });
+  }
+
+  if (includeCompetitors) {
+    const targetPositions = results.map(point => point.position).filter(Boolean);
+    competitorMap.set(targetPlaceId, {
+      name: client.name || 'Cliente analisado',
+      positions: targetPositions,
+      isTarget: true
+    });
   }
 
   const scan = {

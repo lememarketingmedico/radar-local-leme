@@ -1,9 +1,12 @@
-# Radar Local LEME V4.3 - Insights Clientes
+# Radar Local LEME V4.4 - Ranking com Cliente
 
-Esta versão adiciona o módulo **Insights Clientes**, sem usar o nome GBP na interface.
+Esta versão corrige o ranking de perfis encontrados para incluir também o cliente analisado na posição correta, além de manter o módulo **Insights Clientes**.
 
 ## Novidades
 
+- ranking agora mostra o **cliente analisado** junto dos concorrentes;
+- cliente analisado aparece com selo visual e sem botão de gerar grid;
+- correção para o cliente aparecer na ordem real da média;
 - botão **Insights Clientes** no menu;
 - conexão com conta Google via OAuth;
 - sincronização dos perfis administrados pela conta Google da LEME;
