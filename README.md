@@ -1,19 +1,30 @@
-# Radar Local LEME V4.4 - Ranking com Cliente
+# Radar Local LEME V4.5 - Busca de Leads
 
-Esta versão corrige o ranking de perfis encontrados para incluir também o cliente analisado na posição correta, além de manter o módulo **Insights Clientes**.
+Esta versão adiciona uma nova aba **Busca de leads** para encontrar possíveis prospects somente por palavra-chave e gerar grid completo para qualquer perfil encontrado.
 
 ## Novidades
 
-- ranking agora mostra o **cliente analisado** junto dos concorrentes;
-- cliente analisado aparece com selo visual e sem botão de gerar grid;
-- correção para o cliente aparecer na ordem real da média;
-- botão **Insights Clientes** no menu;
-- conexão com conta Google via OAuth;
-- sincronização dos perfis administrados pela conta Google da LEME;
-- geração de relatório de insights por perfil e período;
-- relatório PNG com impressões, interações, chamadas, rotas e visitas ao site.
+- nova aba **Busca de leads** no menu;
+- busca por palavra-chave, sem precisar cadastrar cliente;
+- ranking de perfis encontrados no grid, com média, melhor posição, presença e Top 10;
+- botão **Gerar grid** em cada possível lead;
+- ao gerar grid, o perfil vira uma análise rápida com ranking de concorrentes;
+- mantém a correção anterior em que o cliente analisado aparece no ranking;
+- mantém o módulo **Insights Clientes**.
 
-## Variáveis novas no EasyPanel
+## Como usar a Busca de leads
+
+1. Entre em **Busca de leads**.
+2. Digite uma palavra-chave com cidade, por exemplo: `psiquiatra infantil Uberlândia`.
+3. Escolha grid e raio.
+4. Clique em **Buscar leads**.
+5. Na tabela, clique em **Gerar grid** no perfil que quiser analisar.
+
+## Observação de custo
+
+A Busca de leads usa nomes dos perfis encontrados, então pode cair em Places Text Search Pro. Use como ferramenta estratégica de prospecção.
+
+## Variáveis do Insights Clientes
 
 ```env
 GOOGLE_OAUTH_CLIENT_ID=cole_o_client_id_aqui
@@ -24,12 +35,6 @@ TOKEN_ENCRYPTION_SECRET=texto-grande-com-32-ou-mais-caracteres
 ```
 
 Mantenha também as variáveis antigas do Radar Local.
-
-## APIs necessárias no Google Cloud
-
-- Business Profile Performance API
-- Business Information API
-- Account Management API
 
 ## Importante
 

@@ -34,6 +34,7 @@
         <button class="nav-btn" data-view="keywords">Palavras</button>
         <button class="nav-btn" data-view="scan">Nova análise</button>
         <button class="nav-btn" data-view="prospect">Análise rápida</button>
+        <button class="nav-btn" data-view="leads">Busca de leads</button>
         <button class="nav-btn" data-view="history">Histórico</button>
         <button class="nav-btn" data-view="insights">Insights Clientes</button>
         <button class="nav-btn" data-view="automation">Automação</button>
@@ -231,6 +232,36 @@
               </div>
             </form>
             <div id="prospectRunStatus" class="status-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="leadsView" class="view hidden">
+        <div class="grid-2">
+          <div class="panel">
+            <h2>Busca de leads</h2>
+            <p class="panel-subtitle">Busque oportunidades por palavra-chave. O sistema monta um ranking dos perfis encontrados no grid, sem precisar cadastrar cliente.</p>
+            <form id="leadSearchForm" class="stack-form">
+              <label>Palavra-chave</label>
+              <input name="keyword" placeholder="Ex: psiquiatra infantil Uberlândia" required />
+              <div class="field-row">
+                <div><label>Grid</label><select name="gridSize"><option value="3">3x3</option><option value="5" selected>5x5</option><option value="7">7x7</option></select></div>
+                <div><label>Raio em km</label><input name="radiusKm" type="number" min="0.2" max="50" step="0.1" value="3" /></div>
+              </div>
+              <p class="form-note">Use uma palavra-chave com cidade, por exemplo: “cardiologista Araguari”. O centro do grid será definido automaticamente a partir dos primeiros perfis encontrados.</p>
+              <button type="submit">Buscar leads</button>
+            </form>
+            <div id="leadSearchStatus" class="status-box hidden"></div>
+          </div>
+          <div class="panel result-panel">
+            <div class="panel-title-row">
+              <div>
+                <h2>Ranking de leads</h2>
+                <p class="panel-subtitle">Clique em “Gerar grid” para transformar qualquer perfil encontrado em uma análise completa.</p>
+              </div>
+            </div>
+            <div id="leadRankingPanel" class="competitors-panel hidden"></div>
           </div>
         </div>
       </section>

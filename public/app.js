@@ -22,7 +22,8 @@ const state = {
   googleLoaded: false,
   autoTimer: null,
   quickTarget: null,
-  quickKeyword: ''
+  quickKeyword: '',
+  leadSearch: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -367,6 +368,7 @@ function setView(viewName, options = {}) {
     keywords: ['Palavras', 'Gerencie termos ativos e inativos.'],
     scan: ['Nova análise', 'Ajuste o grid no mapa antes de rodar.'],
     prospect: ['Análise rápida', 'Gere grid para prospecção sem cadastrar cliente.'],
+    leads: ['Busca de leads', 'Encontre perfis por palavra-chave e gere grids para possíveis leads.'],
     history: ['Histórico', 'Compare análises já realizadas.'],
     insights: ['Insights Clientes', 'Relatórios de impressões, chamadas, rotas e visitas ao site.'],
     automation: ['Automação', 'Rode análises em massa para clientes ativos.'],
@@ -693,6 +695,91 @@ function renderCompetitors(scan) {
   panel.classList.remove('hidden');
 }
 
+
+function renderLeadRanking(ranking) {
+  const panel = $('#leadRankingPanel');
+  if (!panel) return;
+  const leads = Array.isArray(ranking?.leads) ? ranking.leads : [];
+  if (!leads.length) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  const payloadBase = {
+    keyword: ranking.keyword,
+    gridSize: ranking.gridSize,
+    radiusKm: ranking.radiusKm,
+    centerLat: ranking.center?.lat,
+    centerLng: ranking.center?.lng
+  };
+  const rows = leads.slice(0, 30).map((item, idx) => {
+    const payload = JSON.stringify({
+      ...payloadBase,
+      placeId: item.placeId,
+      name: item.name || 'Lead encontrado',
+      address: item.address || '',
+      profileLat: item.profileLat ?? '',
+      profileLng: item.profileLng ?? ''
+    }).replaceAll("'", '&#039;');
+    return `<tr>
+      <td class="rank-num">${idx + 1}</td>
+      <td>${escapeHtml(item.name || item.placeId || 'Perfil sem nome')}</td>
+      <td>${item.averagePosition ?? '—'}</td>
+      <td class="muted-cell">${item.bestPosition ?? '—'}</td>
+      <td class="muted-cell">${item.appearances}/${item.totalPoints}</td>
+      <td class="muted-cell">${item.top10Percent}%</td>
+      <td><button class="secondary mini-btn" onclick='runLeadGrid(${payload})'>Gerar grid</button></td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `<div class="competitors-head">
+    <div>
+      <h3>Ranking de perfis encontrados</h3>
+      <p>Busca por palavra-chave, ordenada pela posição média nos pontos do grid.</p>
+      <small>Centro usado: ${escapeHtml(ranking.anchor?.name || 'primeiro perfil encontrado')} · Grid ${ranking.gridSize}x${ranking.gridSize} · Raio ${ranking.radiusKm} km</small>
+    </div>
+    <p>${leads.length} perfil(is) encontrado(s)</p>
+  </div>
+  <table class="competitors-table">
+    <thead><tr><th>#</th><th>Perfil</th><th>Média</th><th>Melhor</th><th>Apareceu</th><th>Top 10</th><th>Ação</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  panel.classList.remove('hidden');
+}
+
+async function runLeadGrid(payload) {
+  if (!payload?.placeId) return alert('Lead inválido.');
+  if (!confirm(`Gerar grid para este possível lead?\n${payload.name || payload.placeId}`)) return;
+  const status = $('#leadSearchStatus');
+  status?.classList.remove('hidden');
+  if (status) status.textContent = 'Gerando grid do lead...';
+  try {
+    const scan = await api('/api/scans/run-prospect', {
+      method: 'POST',
+      body: JSON.stringify({
+        placeId: payload.placeId,
+        name: payload.name,
+        address: payload.address || '',
+        profileLat: payload.profileLat || '',
+        profileLng: payload.profileLng || '',
+        keyword: payload.keyword,
+        gridSize: payload.gridSize,
+        radiusKm: payload.radiusKm,
+        centerLat: payload.centerLat,
+        centerLng: payload.centerLng,
+        includeCompetitors: true
+      })
+    });
+    await loadAll();
+    setView('scan', { mode: 'result' });
+    renderScanResult(scan, 'result');
+    if (status) status.textContent = 'Grid do lead gerado com sucesso.';
+  } catch (err) {
+    if (status) status.textContent = `Erro: ${err.message}`;
+    else alert(err.message);
+  }
+}
+window.runLeadGrid = runLeadGrid;
+
 function renderScanResult(scan, mode = 'result') {
   state.currentScan = scan;
   setScanMode(mode);
@@ -804,6 +891,28 @@ ${name || placeId}`)) return;
   }
 }
 window.runCompetitorGrid = runCompetitorGrid;
+
+
+$('#leadSearchForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = Object.fromEntries(new FormData(e.currentTarget));
+  const status = $('#leadSearchStatus');
+  const panel = $('#leadRankingPanel');
+  status.classList.remove('hidden');
+  status.textContent = 'Buscando leads e montando ranking... Isso pode levar alguns segundos.';
+  panel?.classList.add('hidden');
+  if (panel) panel.innerHTML = '';
+  try {
+    const ranking = await api('/api/leads/search', { method: 'POST', body: JSON.stringify(form) });
+    state.leadSearch = ranking;
+    status.textContent = ranking.leads?.length
+      ? `${ranking.leads.length} perfil(is) encontrado(s). Clique em Gerar grid no lead que quiser analisar.`
+      : 'Nenhum perfil encontrado para esta palavra-chave.';
+    renderLeadRanking(ranking);
+  } catch (err) {
+    status.textContent = `Erro: ${err.message}`;
+  }
+});
 
 $('#prospectSearchForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();

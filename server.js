@@ -953,6 +953,66 @@ async function searchProspectPlaces({ query, city, specialty }) {
   })).filter(p => p.placeId);
 }
 
+
+async function createLeadRanking({ keyword, gridSize, radiusKm }) {
+  const db = readDb();
+  const kw = String(keyword || '').trim();
+  if (!kw) throw new Error('Informe a palavra-chave para buscar leads.');
+  const grid = sanitizeGridSize(gridSize || db.settings.defaultGridSize);
+  const radius = sanitizeRadius(radiusKm || db.settings.defaultRadiusKm);
+
+  const seedPlaces = await searchProspectPlaces({ query: kw });
+  const anchor = seedPlaces.find(place => normalizeNumber(place.lat) !== null && normalizeNumber(place.lng) !== null);
+  if (!anchor) throw new Error('Não encontrei perfis suficientes para definir o centro do grid. Use uma palavra-chave com cidade, por exemplo: cardiologista Araguari.');
+
+  const centerLat = normalizeNumber(anchor.lat);
+  const centerLng = normalizeNumber(anchor.lng);
+  const searchRadiusMeters = getSearchRadiusMeters(radius, grid);
+  const gridPoints = generateGrid(centerLat, centerLng, grid, radius);
+  const leadMap = new Map();
+
+  for (const point of gridPoints) {
+    const places = await searchPlacesAtPoint({ query: kw, lat: point.lat, lng: point.lng, searchRadiusMeters, includeNames: true });
+    places.forEach((place, idx) => {
+      if (!place.id) return;
+      if (!leadMap.has(place.id)) leadMap.set(place.id, { name: place.name, positions: [] });
+      const data = leadMap.get(place.id);
+      if (!data.name && place.name) data.name = place.name;
+      data.positions.push(idx + 1);
+    });
+  }
+
+  const seedMap = new Map(seedPlaces.map(place => [cleanPlaceId(place.placeId), place]));
+  const leads = summarizeCompetitors(leadMap, gridPoints.length).map(item => {
+    const seed = seedMap.get(cleanPlaceId(item.placeId));
+    return {
+      ...item,
+      address: seed?.address || '',
+      profileLat: seed?.lat ?? null,
+      profileLng: seed?.lng ?? null
+    };
+  });
+
+  return {
+    id: id('lead_search'),
+    keyword: kw,
+    gridSize: grid,
+    radiusKm: radius,
+    searchRadiusMeters,
+    center: { lat: Number(centerLat.toFixed(7)), lng: Number(centerLng.toFixed(7)) },
+    anchor: {
+      placeId: anchor.placeId,
+      name: anchor.name,
+      address: anchor.address || '',
+      profileLat: anchor.lat,
+      profileLng: anchor.lng
+    },
+    totalPoints: gridPoints.length,
+    leads,
+    createdAt: new Date().toISOString()
+  };
+}
+
 async function createExternalScan({ target, keyword, gridSize, radiusKm, centerLat, centerLng, includeCompetitors = false, sourceScan = null }) {
   const db = readDb();
   const grid = sanitizeGridSize(gridSize || db.settings.defaultGridSize);
@@ -1409,6 +1469,16 @@ app.post('/api/grid/preview', requireAuth, (req, res) => {
   res.json({ gridSize, radiusKm, centerLat, centerLng, points: generateGrid(centerLat, centerLng, gridSize, radiusKm) });
 });
 
+
+
+app.post('/api/leads/search', requireAuth, async (req, res) => {
+  try {
+    const ranking = await createLeadRanking(req.body || {});
+    res.json(ranking);
+  } catch (error) {
+    res.status(500).json({ error: error.message, detail: error.stack });
+  }
+});
 
 app.post('/api/prospects/search', requireAuth, async (req, res) => {
   try {
