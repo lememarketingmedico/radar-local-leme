@@ -23,7 +23,8 @@ const state = {
   autoTimer: null,
   quickTarget: null,
   quickKeyword: '',
-  leadSearch: null
+  leadSearch: null,
+  leadDraft: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -396,16 +397,22 @@ function setScanMode(mode) {
   view.classList.add(mode === 'new' ? 'preview-mode' : mode === 'history' ? 'history-mode' : 'result-mode');
 
   if (mode === 'new') {
-    if (resultTitle) resultTitle.textContent = 'Ajuste do grid';
-    if (hint) hint.textContent = 'Arraste o ícone cinza ao lado esquerdo do grid. O grid acompanha o movimento.';
+    const isLeadPreview = state.quickTarget?.source === 'lead_search_preview';
+    if (resultTitle) resultTitle.textContent = isLeadPreview ? 'Ajuste do grid para busca de leads' : 'Ajuste do grid';
+    if (hint) hint.textContent = isLeadPreview
+      ? 'Arraste o ícone cinza para posicionar o grid. Depois clique em “Usar grid na busca de leads”.'
+      : 'Arraste o ícone cinza ao lado esquerdo do grid. O grid acompanha o movimento.';
     $('#downloadReportBtn').disabled = !state.currentScan;
     $('#sendReportBtn').disabled = !state.currentScan;
     $('#competitorsPanel')?.classList.add('hidden');
+    $('#useLeadGridBtn')?.classList.toggle('hidden', !isLeadPreview);
   }
   if (mode === 'result') {
+    $('#useLeadGridBtn')?.classList.add('hidden');
     if (resultTitle) resultTitle.textContent = 'Resultado da análise';
   }
   if (mode === 'history') {
+    $('#useLeadGridBtn')?.classList.add('hidden');
     if (resultTitle) resultTitle.textContent = 'Resultado salvo';
   }
 }
@@ -519,7 +526,19 @@ async function renderPreviewGrid() {
   if (!client || !state.map || state.scanMode !== 'new') return;
   const seq = ++state.previewSeq;
 
-  $('#resultSummary').innerHTML = `<div class="preview-help">
+  const isLeadPreview = client.source === 'lead_search_preview';
+  $('#resultSummary').innerHTML = isLeadPreview ? `<div class="preview-help">
+    <strong>1. Ajuste o centro do grid</strong>
+    <span>Arraste o ícone cinza para cobrir a região onde você quer buscar leads.</span>
+  </div>
+  <div class="preview-help">
+    <strong>2. Volte para a busca</strong>
+    <span>Clique em “Usar grid na busca de leads” para salvar este centro.</span>
+  </div>
+  <div class="preview-help">
+    <strong>3. Gere a lista</strong>
+    <span>O ranking e os botões “Gerar grid” usarão este mesmo grid ajustado.</span>
+  </div>` : `<div class="preview-help">
     <strong>1. Mova o grid pelo ícone lateral</strong>
     <span>Arraste o ícone cinza ao lado esquerdo. O grid acompanha o movimento em tempo real.</span>
   </div>
@@ -693,6 +712,115 @@ function renderCompetitors(scan) {
     <tbody>${rows}</tbody>
   </table>`;
   panel.classList.remove('hidden');
+}
+
+
+function getLeadSearchForm() {
+  return $('#leadSearchForm');
+}
+
+function readLeadFormValues() {
+  const form = getLeadSearchForm();
+  if (!form) return null;
+  return {
+    keyword: String(form.keyword?.value || '').trim(),
+    gridSize: Number(form.gridSize?.value || 5),
+    radiusKm: Number(form.radiusKm?.value || 3),
+    centerLat: form.centerLat?.value || '',
+    centerLng: form.centerLng?.value || ''
+  };
+}
+
+function updateLeadGridNote(message) {
+  const note = $('#leadGridNote');
+  if (note && message) note.textContent = message;
+}
+
+function setLeadAdjustedGrid({ centerLat, centerLng, gridSize, radiusKm, keyword }) {
+  const form = getLeadSearchForm();
+  if (!form) return;
+  const lat = Number(centerLat);
+  const lng = Number(centerLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  if (form.centerLat) form.centerLat.value = lat.toFixed(7);
+  if (form.centerLng) form.centerLng.value = lng.toFixed(7);
+  if (form.gridSize && gridSize) form.gridSize.value = String(gridSize);
+  if (form.radiusKm && radiusKm) form.radiusKm.value = String(radiusKm);
+  if (form.keyword && keyword) form.keyword.value = keyword;
+  state.leadDraft = {
+    keyword: keyword || form.keyword?.value || '',
+    gridSize: Number(gridSize || form.gridSize?.value || 5),
+    radiusKm: Number(radiusKm || form.radiusKm?.value || 3),
+    centerLat: lat,
+    centerLng: lng
+  };
+  const status = $('#leadSearchStatus');
+  status?.classList.remove('hidden');
+  if (status) status.textContent = `Grid ajustado e salvo para a busca de leads. Centro: ${lat.toFixed(5)}, ${lng.toFixed(5)}.`;
+  updateLeadGridNote('Grid ajustado. Agora clique em “Buscar leads”; o ranking e todos os botões “Gerar grid” usarão este mesmo centro ajustado.');
+}
+
+async function prepareLeadGridPreview() {
+  const formValues = readLeadFormValues();
+  const status = $('#leadSearchStatus');
+  status?.classList.remove('hidden');
+  if (!formValues?.keyword) {
+    if (status) status.textContent = 'Digite uma palavra-chave com cidade antes de ajustar o grid.';
+    return;
+  }
+  if (status) status.textContent = 'Buscando ponto inicial para ajustar o grid...';
+  try {
+    const result = await api('/api/prospects/search', {
+      method: 'POST',
+      body: JSON.stringify({ query: formValues.keyword })
+    });
+    const anchor = (result.places || []).find(place => Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng)));
+    if (!anchor) throw new Error('Não encontrei um perfil com localização para montar a prévia. Use uma palavra-chave com cidade, por exemplo: cardiologista Araguari.');
+    const savedLat = Number(formValues.centerLat);
+    const savedLng = Number(formValues.centerLng);
+    const centerLat = Number.isFinite(savedLat) ? savedLat : Number(anchor.lat);
+    const centerLng = Number.isFinite(savedLng) ? savedLng : Number(anchor.lng);
+    state.quickTarget = {
+      id: '__lead_preview__',
+      source: 'lead_search_preview',
+      name: `Busca de leads: ${formValues.keyword}`,
+      placeId: anchor.placeId,
+      address: anchor.address || '',
+      city: '',
+      specialty: '',
+      profileLat: Number(anchor.lat),
+      profileLng: Number(anchor.lng),
+      gridCenterLat: centerLat,
+      gridCenterLng: centerLng,
+      defaultGridSize: formValues.gridSize,
+      defaultRadiusKm: formValues.radiusKm,
+      status: 'active'
+    };
+    state.quickKeyword = formValues.keyword;
+    renderSelects();
+    $('#scanClientSelect').value = '__prospect__';
+    $('#scanGridSize').value = String(formValues.gridSize || 5);
+    $('#scanRadiusKm').value = formValues.radiusKm || 3;
+    setCenterFields(centerLat, centerLng);
+    renderKeywordSelect();
+    setView('scan', { mode: 'new' });
+    setTimeout(() => initPreviewMap(), 150);
+    if (status) status.textContent = 'Ajuste o grid no mapa e clique em “Usar grid na busca de leads”.';
+  } catch (err) {
+    if (status) status.textContent = `Erro: ${err.message}`;
+  }
+}
+
+function useLeadGridFromPreview() {
+  if (!state.quickTarget || state.quickTarget.source !== 'lead_search_preview') return;
+  setLeadAdjustedGrid({
+    keyword: state.quickKeyword,
+    gridSize: Number($('#scanGridSize').value || state.quickTarget.defaultGridSize || 5),
+    radiusKm: Number($('#scanRadiusKm').value || state.quickTarget.defaultRadiusKm || 3),
+    centerLat: Number($('#centerLat').value || state.quickTarget.gridCenterLat),
+    centerLng: Number($('#centerLng').value || state.quickTarget.gridCenterLng)
+  });
+  setView('leads');
 }
 
 
@@ -896,6 +1024,10 @@ window.runCompetitorGrid = runCompetitorGrid;
 $('#leadSearchForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = Object.fromEntries(new FormData(e.currentTarget));
+  if (state.leadDraft && !form.centerLat && !form.centerLng) {
+    form.centerLat = state.leadDraft.centerLat;
+    form.centerLng = state.leadDraft.centerLng;
+  }
   const status = $('#leadSearchStatus');
   const panel = $('#leadRankingPanel');
   status.classList.remove('hidden');
@@ -912,6 +1044,15 @@ $('#leadSearchForm')?.addEventListener('submit', async (e) => {
   } catch (err) {
     status.textContent = `Erro: ${err.message}`;
   }
+});
+
+
+$('#leadAdjustGridBtn')?.addEventListener('click', async () => {
+  await prepareLeadGridPreview();
+});
+
+$('#useLeadGridBtn')?.addEventListener('click', () => {
+  useLeadGridFromPreview();
 });
 
 $('#prospectSearchForm')?.addEventListener('submit', async (e) => {
@@ -1131,6 +1272,10 @@ $('#saveCenterBtn').addEventListener('click', async () => {
   if ($('#scanClientSelect').value === '__prospect__' && state.quickTarget) {
     state.quickTarget.gridCenterLat = Number($('#centerLat').value);
     state.quickTarget.gridCenterLng = Number($('#centerLng').value);
+    if (state.quickTarget.source === 'lead_search_preview') {
+      useLeadGridFromPreview();
+      return;
+    }
     alert('Centro ajustado para esta análise rápida.');
     return;
   }
@@ -1157,6 +1302,11 @@ $('#scanForm').addEventListener('submit', async (e) => {
   const btn = e.currentTarget.querySelector('button[type="submit"]');
   btn.disabled = true;
   try {
+    if (form.clientId === '__prospect__' && state.quickTarget?.source === 'lead_search_preview') {
+      useLeadGridFromPreview();
+      status.textContent = 'Grid salvo para a busca de leads.';
+      return;
+    }
     let scan;
     if (form.clientId === '__prospect__' && state.quickTarget) {
       const body = {

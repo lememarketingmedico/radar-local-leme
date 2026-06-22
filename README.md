@@ -1,41 +1,25 @@
-# Radar Local LEME V4.5 - Busca de Leads
+# Radar Local LEME V4.6 - Busca de leads com grid ajustável
 
-Esta versão adiciona uma nova aba **Busca de leads** para encontrar possíveis prospects somente por palavra-chave e gerar grid completo para qualquer perfil encontrado.
+Atualização sobre a V4.5:
 
-## Novidades
+- A aba **Busca de leads** agora permite ajustar o grid antes de montar o ranking.
+- Botão novo: **Ajustar grid no mapa**.
+- Depois de ajustar, clique em **Usar grid na busca de leads**.
+- O ranking será gerado usando o centro ajustado.
+- Ao clicar em **Gerar grid** em qualquer lead da lista, a análise já vem com o mesmo grid/centro/raio ajustado antes da busca.
+- Mantém a busca por palavra-chave sem precisar cadastrar o lead como cliente.
+- Mantém Insights Clientes, análise rápida, ranking de concorrentes e relatórios.
 
-- nova aba **Busca de leads** no menu;
-- busca por palavra-chave, sem precisar cadastrar cliente;
-- ranking de perfis encontrados no grid, com média, melhor posição, presença e Top 10;
-- botão **Gerar grid** em cada possível lead;
-- ao gerar grid, o perfil vira uma análise rápida com ranking de concorrentes;
-- mantém a correção anterior em que o cliente analisado aparece no ranking;
-- mantém o módulo **Insights Clientes**.
+## Como subir
 
-## Como usar a Busca de leads
+1. Extraia o ZIP.
+2. Suba o conteúdo da pasta para a raiz do GitHub.
+3. Não suba a pasta `data`.
+4. No EasyPanel, faça **Forçar reconstrução**.
 
-1. Entre em **Busca de leads**.
-2. Digite uma palavra-chave com cidade, por exemplo: `psiquiatra infantil Uberlândia`.
-3. Escolha grid e raio.
-4. Clique em **Buscar leads**.
-5. Na tabela, clique em **Gerar grid** no perfil que quiser analisar.
+Volume persistente:
 
-## Observação de custo
-
-A Busca de leads usa nomes dos perfis encontrados, então pode cair em Places Text Search Pro. Use como ferramenta estratégica de prospecção.
-
-## Variáveis do Insights Clientes
-
-```env
-GOOGLE_OAUTH_CLIENT_ID=cole_o_client_id_aqui
-GOOGLE_OAUTH_CLIENT_SECRET=cole_o_client_secret_aqui
-GOOGLE_OAUTH_REDIRECT_URI=https://maps.sistemaleme.com.br/api/google/callback
-GOOGLE_INSIGHTS_SCOPES=https://www.googleapis.com/auth/business.manage
-TOKEN_ENCRYPTION_SECRET=texto-grande-com-32-ou-mais-caracteres
+```txt
+/app/data
 ```
 
-Mantenha também as variáveis antigas do Radar Local.
-
-## Importante
-
-Não suba a pasta `data` para o GitHub. O volume persistente no EasyPanel deve continuar como `/app/data`.

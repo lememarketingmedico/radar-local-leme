@@ -156,6 +156,7 @@
               <div class="button-row">
                 <button type="button" class="secondary" id="centerOnProfileBtn">Centralizar no perfil</button>
                 <button type="button" class="secondary" id="saveCenterBtn">Salvar centro</button>
+                <button type="button" class="secondary hidden" id="useLeadGridBtn">Usar grid na busca de leads</button>
               </div>
               <label class="checkline"><input type="checkbox" name="saveCenter" checked /> Salvar centro usado no cliente</label>
               <label class="checkline"><input type="checkbox" name="includeCompetitors" /> Incluir ranking de concorrentes</label>
@@ -249,8 +250,13 @@
                 <div><label>Grid</label><select name="gridSize"><option value="3">3x3</option><option value="5" selected>5x5</option><option value="7">7x7</option></select></div>
                 <div><label>Raio em km</label><input name="radiusKm" type="number" min="0.2" max="50" step="0.1" value="3" /></div>
               </div>
-              <p class="form-note">Use uma palavra-chave com cidade, por exemplo: “cardiologista Araguari”. O centro do grid será definido automaticamente a partir dos primeiros perfis encontrados.</p>
-              <button type="submit">Buscar leads</button>
+              <input type="hidden" name="centerLat" />
+              <input type="hidden" name="centerLng" />
+              <p class="form-note" id="leadGridNote">Use uma palavra-chave com cidade, por exemplo: “cardiologista Araguari”. Você pode ajustar o grid antes da busca; depois, todo lead gerado usará esse mesmo centro.</p>
+              <div class="button-row">
+                <button type="button" class="secondary" id="leadAdjustGridBtn">Ajustar grid no mapa</button>
+                <button type="submit">Buscar leads</button>
+              </div>
             </form>
             <div id="leadSearchStatus" class="status-box hidden"></div>
           </div>

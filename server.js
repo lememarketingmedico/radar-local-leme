@@ -954,7 +954,7 @@ async function searchProspectPlaces({ query, city, specialty }) {
 }
 
 
-async function createLeadRanking({ keyword, gridSize, radiusKm }) {
+async function createLeadRanking({ keyword, gridSize, radiusKm, centerLat, centerLng }) {
   const db = readDb();
   const kw = String(keyword || '').trim();
   if (!kw) throw new Error('Informe a palavra-chave para buscar leads.');
@@ -963,12 +963,16 @@ async function createLeadRanking({ keyword, gridSize, radiusKm }) {
 
   const seedPlaces = await searchProspectPlaces({ query: kw });
   const anchor = seedPlaces.find(place => normalizeNumber(place.lat) !== null && normalizeNumber(place.lng) !== null);
-  if (!anchor) throw new Error('Não encontrei perfis suficientes para definir o centro do grid. Use uma palavra-chave com cidade, por exemplo: cardiologista Araguari.');
+  const requestedCenterLat = normalizeNumber(centerLat);
+  const requestedCenterLng = normalizeNumber(centerLng);
+  const resolvedCenterLat = requestedCenterLat ?? normalizeNumber(anchor?.lat);
+  const resolvedCenterLng = requestedCenterLng ?? normalizeNumber(anchor?.lng);
+  if (resolvedCenterLat === null || resolvedCenterLng === null) throw new Error('Não encontrei perfis suficientes para definir o centro do grid. Use uma palavra-chave com cidade, por exemplo: cardiologista Araguari.');
 
-  const centerLat = normalizeNumber(anchor.lat);
-  const centerLng = normalizeNumber(anchor.lng);
+  const centerLatFinal = resolvedCenterLat;
+  const centerLngFinal = resolvedCenterLng;
   const searchRadiusMeters = getSearchRadiusMeters(radius, grid);
-  const gridPoints = generateGrid(centerLat, centerLng, grid, radius);
+  const gridPoints = generateGrid(centerLatFinal, centerLngFinal, grid, radius);
   const leadMap = new Map();
 
   for (const point of gridPoints) {
@@ -999,13 +1003,19 @@ async function createLeadRanking({ keyword, gridSize, radiusKm }) {
     gridSize: grid,
     radiusKm: radius,
     searchRadiusMeters,
-    center: { lat: Number(centerLat.toFixed(7)), lng: Number(centerLng.toFixed(7)) },
-    anchor: {
+    center: { lat: Number(centerLatFinal.toFixed(7)), lng: Number(centerLngFinal.toFixed(7)) },
+    anchor: anchor ? {
       placeId: anchor.placeId,
       name: anchor.name,
       address: anchor.address || '',
       profileLat: anchor.lat,
       profileLng: anchor.lng
+    } : {
+      placeId: '',
+      name: 'Centro ajustado manualmente',
+      address: '',
+      profileLat: centerLatFinal,
+      profileLng: centerLngFinal
     },
     totalPoints: gridPoints.length,
     leads,
